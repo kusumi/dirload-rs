@@ -3,7 +3,7 @@ use std::io::Write;
 
 use crate::util;
 use crate::worker;
-use crate::UserOpt;
+use crate::Opt;
 
 pub const MAX_BUFFER_SIZE: usize = 128 * 1024;
 const WRITE_PATHS_PREFIX: &str = "dirload";
@@ -62,7 +62,7 @@ pub fn newdir(random: bool, write_paths_type: &str) -> Dir {
     dir
 }
 
-pub fn cleanup_write_paths(tdv: &[&ThreadDir], opt: &UserOpt) -> std::io::Result<usize> {
+pub fn cleanup_write_paths(tdv: &[&ThreadDir], opt: &Opt) -> std::io::Result<usize> {
     let mut l = vec![];
     for tdir in tdv.iter() {
         for f in tdir.write_paths.iter() {
@@ -120,7 +120,7 @@ fn assert_file_path(f: &str) {
     assert!(!f.ends_with('/'));
 }
 
-pub fn read_entry(f: &str, thr: &mut worker::Thread, opt: &UserOpt) -> std::io::Result<()> {
+pub fn read_entry(f: &str, thr: &mut worker::Thread, opt: &Opt) -> std::io::Result<()> {
     assert_file_path(f);
     let mut t = util::get_raw_file_type(f)?;
 
@@ -167,7 +167,7 @@ pub fn read_entry(f: &str, thr: &mut worker::Thread, opt: &UserOpt) -> std::io::
     Ok(())
 }
 
-fn read_file(f: &str, thr: &mut worker::Thread, opt: &UserOpt) -> std::io::Result<()> {
+fn read_file(f: &str, thr: &mut worker::Thread, opt: &Opt) -> std::io::Result<()> {
     let mut fp = std::fs::File::open(f)?;
     let mut b: &mut [u8] = &mut thr.dir.read_buffer;
     let mut resid = opt.read_size; // negative resid means read until EOF
@@ -206,12 +206,7 @@ fn read_file(f: &str, thr: &mut worker::Thread, opt: &UserOpt) -> std::io::Resul
     Ok(())
 }
 
-pub fn write_entry(
-    f: &str,
-    thr: &mut worker::Thread,
-    dir: &Dir,
-    opt: &UserOpt,
-) -> std::io::Result<()> {
+pub fn write_entry(f: &str, thr: &mut worker::Thread, dir: &Dir, opt: &Opt) -> std::io::Result<()> {
     assert_file_path(f);
     let t = util::get_raw_file_type(f)?;
 
@@ -240,7 +235,7 @@ fn write_file(
     f: &str,
     thr: &mut worker::Thread,
     dir: &Dir,
-    opt: &UserOpt,
+    opt: &Opt,
 ) -> std::io::Result<()> {
     if is_write_done(thr, opt) {
         return Ok(());
@@ -354,19 +349,19 @@ fn fsync_inode(f: &str) -> std::io::Result<()> {
     std::fs::File::open(f)?.flush()
 }
 
-pub fn is_write_done(thr: &worker::Thread, opt: &UserOpt) -> bool {
-    if !worker::is_writer(thr, opt) || opt.num_write_paths <= 0 {
+pub fn is_write_done(thr: &worker::Thread, opt: &Opt) -> bool {
+    if !thr.is_writer(opt) || opt.num_write_paths <= 0 {
         false
     } else {
         thr.dir.write_paths.len() as isize >= opt.num_write_paths
     }
 }
 
-fn get_write_paths_base(opt: &UserOpt) -> String {
+fn get_write_paths_base(opt: &Opt) -> String {
     format!("{}_{}", WRITE_PATHS_PREFIX, opt.write_paths_base)
 }
 
-pub fn collect_write_paths(input: &[String], opt: &UserOpt) -> std::io::Result<Vec<String>> {
+pub fn collect_write_paths(input: &[String], opt: &Opt) -> std::io::Result<Vec<String>> {
     let b = get_write_paths_base(opt);
     let mut l = vec![];
     for f in util::remove_dup_string(input) {

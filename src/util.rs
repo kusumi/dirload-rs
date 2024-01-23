@@ -2,7 +2,6 @@ use rand::distributions::uniform::SampleRange;
 use rand::Rng;
 use std::os::unix::fs::FileTypeExt;
 
-// XXX Rust has std::fs::FileType
 pub type FileType = i32;
 
 pub const DIR: FileType = 0;
@@ -26,14 +25,14 @@ pub fn get_abspath(f: &str) -> std::io::Result<String> {
 pub fn get_dirpath(f: &str) -> std::io::Result<String> {
     let p = std::path::Path::new(f)
         .parent()
-        .ok_or(std::io::Error::from(std::io::ErrorKind::NotFound))?;
+        .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound))?;
     Ok(p.to_str().unwrap().to_string())
 }
 
 pub fn get_basename(f: &str) -> std::io::Result<String> {
     let s = std::path::Path::new(f)
         .file_name()
-        .ok_or(std::io::Error::from(std::io::ErrorKind::NotFound))?;
+        .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound))?;
     Ok(s.to_str().unwrap().to_string())
 }
 
@@ -165,7 +164,7 @@ pub fn parse_walkdir_entry(entry: &walkdir::DirEntry) -> std::io::Result<&str> {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn test_is_windnows() {
+    fn test_is_windows() {
         assert!(!super::is_windows());
     }
 

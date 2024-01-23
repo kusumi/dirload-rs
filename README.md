@@ -1,4 +1,4 @@
-dirload-rs ([v0.1.0](https://github.com/kusumi/dirload-rs/releases/tag/v0.1.0))
+dirload-rs ([v0.1.1](https://github.com/kusumi/dirload-rs/releases/tag/v0.1.1))
 ========
 
 ## About
@@ -18,10 +18,6 @@ Recent version of Rust
 ## Build
 
     $ make
-
-or
-
-    $ gmake
 
 ## Usage
 
@@ -85,7 +81,3 @@ or
             --debug         Create debug log file under home directory
         -v, --version       Print version and exit
         -h, --help          Print usage and exit
-
-## Resource
-
-[https://github.com/kusumi/dirload-rs/](https://github.com/kusumi/dirload-rs/)

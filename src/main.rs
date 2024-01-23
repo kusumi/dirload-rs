@@ -4,10 +4,10 @@ mod stat;
 mod util;
 mod worker;
 
-const VERSION: [i32; 3] = [0, 1, 0];
+const VERSION: [i32; 3] = [0, 1, 1];
 
 #[derive(Debug)]
-struct UserOpt {
+struct Opt {
     num_reader: usize,
     num_writer: usize,
     num_repeat: isize,
@@ -37,9 +37,9 @@ struct UserOpt {
     debug: bool,
 }
 
-impl Default for UserOpt {
-    fn default() -> UserOpt {
-        UserOpt {
+impl Default for Opt {
+    fn default() -> Opt {
+        Opt {
             num_reader: 0,
             num_writer: 0,
             num_repeat: -1,
@@ -61,7 +61,7 @@ impl Default for UserOpt {
             clean_write_paths: false,
             write_paths_base: "x".to_string(),
             write_paths_type: "dr".to_string(),
-            path_iter: worker::PATH_ITER_WALK,
+            path_iter: worker::PATH_ITER_ORDERED,
             flist_file: "".to_string(),
             flist_file_create: false,
             force: false,
@@ -80,8 +80,10 @@ fn print_version() {
 }
 
 fn usage(progname: &str, opts: getopts::Options) {
-    let brief = format!("usage: {} [<options>] <paths>", progname);
-    print!("{}", opts.usage(&brief));
+    print!(
+        "{}",
+        opts.usage(&format!("usage: {} [<options>] <paths>", progname))
+    );
 }
 
 fn init_log(f: &str) {
@@ -213,7 +215,7 @@ fn main() {
         std::process::exit(1);
     }
 
-    let mut opt = UserOpt {
+    let mut opt = Opt {
         ..Default::default()
     };
     if matches.opt_present("num_reader") {
@@ -370,9 +372,23 @@ fn main() {
     let mut input = vec![];
     for v in args.iter() {
         let absf = util::get_abspath(v).unwrap();
+        assert!(!absf.ends_with('/'));
         if util::get_raw_file_type(&absf).unwrap() != util::DIR {
             println!("{} not directory", absf);
             std::process::exit(1);
+        }
+        if !opt.force {
+            let mut count = 0;
+            for x in absf.chars() {
+                if x == '/' {
+                    count += 1;
+                }
+            }
+            // /path/to/dir is allowed, but /path/to is not
+            if count < 3 {
+                println!("{} not allowed", absf);
+                std::process::exit(1);
+            }
         }
         input.push(absf);
     }

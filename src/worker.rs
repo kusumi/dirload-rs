@@ -3,7 +3,7 @@ use crate::flist;
 use crate::is_interrupted;
 use crate::stat;
 use crate::util;
-use crate::UserOpt;
+use crate::Opt;
 
 pub const PATH_ITER_WALK: usize = 0;
 pub const PATH_ITER_ORDERED: usize = 1;
@@ -18,6 +18,16 @@ pub struct Thread {
     num_complete: usize,
     num_interrupted: usize,
     num_error: usize,
+}
+
+impl Thread {
+    pub fn is_reader(&self, opt: &Opt) -> bool {
+        self.gid < opt.num_reader
+    }
+
+    pub fn is_writer(&self, opt: &Opt) -> bool {
+        !self.is_reader(opt)
+    }
 }
 
 pub fn newread(gid: usize, bufsiz: usize) -> Thread {
@@ -38,15 +48,7 @@ pub fn newwrite(gid: usize, bufsiz: usize) -> Thread {
     }
 }
 
-pub fn is_reader(thr: &Thread, opt: &UserOpt) -> bool {
-    thr.gid < opt.num_reader
-}
-
-pub fn is_writer(thr: &Thread, opt: &UserOpt) -> bool {
-    !is_reader(thr, opt)
-}
-
-fn setup_flist_impl(input: &[String], opt: &UserOpt) -> std::io::Result<Vec<Vec<String>>> {
+fn setup_flist_impl(input: &[String], opt: &Opt) -> std::io::Result<Vec<Vec<String>>> {
     let mut fls: Vec<Vec<String>> = vec![];
     for _ in 0..input.len() {
         fls.push(vec![]);
@@ -92,7 +94,7 @@ fn setup_flist_impl(input: &[String], opt: &UserOpt) -> std::io::Result<Vec<Vec<
     Ok(fls)
 }
 
-fn setup_flist(input: &[String], opt: &UserOpt) -> std::io::Result<Vec<Vec<String>>> {
+fn setup_flist(input: &[String], opt: &Opt) -> std::io::Result<Vec<Vec<String>>> {
     // setup flist for non-walk iterations
     if opt.path_iter == PATH_ITER_WALK {
         for f in input.iter() {
@@ -106,14 +108,15 @@ fn setup_flist(input: &[String], opt: &UserOpt) -> std::io::Result<Vec<Vec<Strin
     }
 }
 
-fn debug_print_complete(repeat: isize, thr: &Thread, opt: &UserOpt) {
-    let t = if is_reader(thr, opt) {
+fn debug_print_complete(repeat: isize, thr: &Thread, opt: &Opt) {
+    let t = if thr.is_reader(opt) {
         "reader"
     } else {
         "writer"
     };
     let msg = format!(
-        "#{} {} complete - repeat {} iswritedone {}",
+        "{:?} #{} {} complete - repeat {} iswritedone {}",
+        std::thread::current().id(),
         thr.gid,
         t,
         repeat,
@@ -130,7 +133,7 @@ fn thread_handler(
     fl: Option<&Vec<String>>,
     thr: &mut Thread,
     dir: &dir::Dir,
-    opt: &UserOpt,
+    opt: &Opt,
 ) -> std::io::Result<()> {
     let iter_walk = opt.path_iter == PATH_ITER_WALK;
     let duration = opt.time_minute * 60 + opt.time_second;
@@ -155,7 +158,7 @@ fn thread_handler(
             {
                 let f = util::parse_walkdir_entry(&entry)?;
                 assert!(f.starts_with(input_path));
-                if is_reader(thr, opt) {
+                if thr.is_reader(opt) {
                     dir::read_entry(f, thr, opt)?;
                 } else {
                     dir::write_entry(f, thr, dir, opt)?;
@@ -180,7 +183,7 @@ fn thread_handler(
                 };
                 let f = &fl[idx];
                 assert!(f.starts_with(input_path));
-                if is_reader(thr, opt) {
+                if thr.is_reader(opt) {
                     dir::read_entry(f, thr, opt)?;
                 } else {
                     dir::write_entry(f, thr, dir, opt)?;
@@ -205,18 +208,15 @@ fn thread_handler(
         if opt.num_repeat > 0 && repeat >= opt.num_repeat {
             break; // usually only readers break from here
         }
-        if is_writer(thr, opt) && dir::is_write_done(thr, opt) {
+        if thr.is_writer(opt) && dir::is_write_done(thr, opt) {
             break;
         }
     }
 
-    if is_reader(thr, opt) {
+    if thr.is_reader(opt) {
         assert!(opt.num_repeat > 0);
         assert!(repeat >= opt.num_repeat);
-    } else {
-        assert!(dir::is_write_done(thr, opt));
     }
-
     debug_print_complete(repeat, thr, opt);
     thr.num_complete += 1;
 
@@ -225,7 +225,7 @@ fn thread_handler(
 
 pub fn dispatch_worker(
     input: &[String],
-    opt: &UserOpt,
+    opt: &Opt,
 ) -> std::io::Result<(usize, usize, usize, usize, Vec<stat::ThreadStat>)> {
     for f in input.iter() {
         assert!(util::is_abspath(f));
@@ -261,8 +261,9 @@ pub fn dispatch_worker(
     // spawn + join threads
     std::thread::scope(|s| {
         for thr in thrv.iter_mut() {
-            log::info!("#{} start", thr.gid);
             s.spawn(|| {
+                let tid = std::thread::current().id();
+                log::info!("{:?} #{} start", tid, thr.gid);
                 let input_path = &input[thr.gid % input.len()];
                 let fl = if !fls.is_empty() {
                     Some(&fls[thr.gid % fls.len()])
@@ -272,7 +273,7 @@ pub fn dispatch_worker(
                 thr.stat.set_time_begin();
                 if let Err(e) = thread_handler(input_path, fl, thr, &dir, opt) {
                     thr.num_error += 1;
-                    log::info!("#{} {}", thr.gid, e);
+                    log::info!("{:?} #{} {}", tid, thr.gid, e);
                     println!("{}", e);
                 }
                 thr.stat.set_time_end();
