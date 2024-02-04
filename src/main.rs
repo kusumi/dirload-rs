@@ -4,7 +4,7 @@ mod stat;
 mod util;
 mod worker;
 
-const VERSION: [i32; 3] = [0, 1, 1];
+const VERSION: [i32; 3] = [0, 1, 2];
 
 #[derive(Debug)]
 struct Opt {
@@ -13,6 +13,8 @@ struct Opt {
     num_repeat: isize,
     time_minute: u64,
     time_second: u64,
+    monitor_int_minute: u64,
+    monitor_int_second: u64,
     stat_only: bool,
     ignore_dot: bool,
     lstat: bool,
@@ -45,6 +47,8 @@ impl Default for Opt {
             num_repeat: -1,
             time_minute: 0,
             time_second: 0,
+            monitor_int_minute: 0,
+            monitor_int_second: 0,
             stat_only: false,
             ignore_dot: false,
             lstat: false,
@@ -105,7 +109,7 @@ extern "C" fn sigint_handler(_: libc::c_int) {
     }
 }
 
-pub fn is_interrupted() -> bool {
+pub(crate) fn is_interrupted() -> bool {
     unsafe { INTERRUPTED }
 }
 
@@ -114,24 +118,36 @@ fn main() {
     let progname = args[0].clone();
 
     let mut opts = getopts::Options::new();
-    opts.optopt("", "num_reader", "Number of reader Goroutines", "<uint>");
-    opts.optopt("", "num_writer", "Number of writer Goroutines", "<uint>");
+    opts.optopt("", "num_reader", "Number of reader threads", "<uint>");
+    opts.optopt("", "num_writer", "Number of writer threads", "<uint>");
     opts.optopt(
         "",
         "num_repeat",
-        "Exit Goroutines after specified iterations if > 0",
+        "Exit threads after specified iterations if > 0",
         "<int>",
     );
     opts.optopt(
         "",
         "time_minute",
-        "Exit Goroutines after sum of this and -time_second option if > 0",
+        "Exit threads after sum of this and -time_second option if > 0",
         "<uint>",
     );
     opts.optopt(
         "",
         "time_second",
-        "Exit Goroutines after sum of this and -time_minute option if > 0",
+        "Exit threads after sum of this and -time_minute option if > 0",
+        "<uint>",
+    );
+    opts.optopt(
+        "",
+        "monitor_interval_minute",
+        "Monitor threads every sum of this and -monitor_interval_second option if > 0",
+        "<uint>",
+    );
+    opts.optopt(
+        "",
+        "monitor_interval_second",
+        "Monitor threads every sum of this and -monitor_interval_minute option if > 0",
         "<uint>",
     );
     opts.optflag("", "stat_only", "Do not read file data");
@@ -155,7 +171,7 @@ fn main() {
     opts.optopt(
         "",
         "num_write_paths",
-        "Exit writer Goroutines after creating specified files or directories if > 0",
+        "Exit writer threads after creating specified files or directories if > 0",
         "<int>",
     );
     opts.optflag(
@@ -172,7 +188,7 @@ fn main() {
     opts.optflag(
         "",
         "keep_write_paths",
-        "Do not unlink write paths after writer Goroutines exit",
+        "Do not unlink write paths after writer threads exit",
     );
     opts.optflag(
         "",
@@ -236,6 +252,24 @@ fn main() {
     if matches.opt_present("time_second") {
         opt.time_second = matches.opt_str("time_second").unwrap().parse().unwrap();
     }
+    opt.time_second += opt.time_minute * 60;
+    opt.time_minute = 0;
+    if matches.opt_present("monitor_interval_minute") {
+        opt.monitor_int_minute = matches
+            .opt_str("monitor_interval_minute")
+            .unwrap()
+            .parse()
+            .unwrap();
+    }
+    if matches.opt_present("monitor_interval_second") {
+        opt.monitor_int_second = matches
+            .opt_str("monitor_interval_second")
+            .unwrap()
+            .parse()
+            .unwrap();
+    }
+    opt.monitor_int_second += opt.monitor_int_minute * 60;
+    opt.monitor_int_minute = 0;
     opt.stat_only = matches.opt_present("stat_only");
     opt.ignore_dot = matches.opt_present("ignore_dot");
     opt.lstat = matches.opt_present("lstat");
@@ -408,7 +442,7 @@ fn main() {
             std::process::exit(1);
         }
         flist::create_flist_file(&input, &opt.flist_file, opt.ignore_dot, opt.force).unwrap();
-        println!("{:?}", util::path_exists(&opt.flist_file).unwrap());
+        println!("{:?}", util::path_exists_or_error(&opt.flist_file).unwrap());
         std::process::exit(0);
     }
     // clean write paths and exit

@@ -5,46 +5,55 @@ use crate::stat;
 use crate::util;
 use crate::Opt;
 
-pub const PATH_ITER_WALK: usize = 0;
-pub const PATH_ITER_ORDERED: usize = 1;
-pub const PATH_ITER_REVERSE: usize = 2;
-pub const PATH_ITER_RANDOM: usize = 3;
+pub(crate) const PATH_ITER_WALK: usize = 0;
+pub(crate) const PATH_ITER_ORDERED: usize = 1;
+pub(crate) const PATH_ITER_REVERSE: usize = 2;
+pub(crate) const PATH_ITER_RANDOM: usize = 3;
 
 #[derive(Debug, Default)]
-pub struct Thread {
-    pub gid: usize,
-    pub dir: dir::ThreadDir,
-    pub stat: stat::ThreadStat,
+pub(crate) struct Thread {
+    pub(crate) gid: usize,
+    pub(crate) dir: dir::ThreadDir,
+    pub(crate) stat: stat::ThreadStat,
     num_complete: usize,
     num_interrupted: usize,
     num_error: usize,
+    txc: Option<std::sync::mpsc::Sender<(usize, stat::ThreadStat)>>,
 }
 
 impl Thread {
-    pub fn is_reader(&self, opt: &Opt) -> bool {
+    fn newread(gid: usize, bufsiz: usize) -> Thread {
+        Thread {
+            gid,
+            dir: dir::ThreadDir::newread(bufsiz),
+            stat: stat::ThreadStat::newread(),
+            ..Default::default()
+        }
+    }
+
+    fn newwrite(gid: usize, bufsiz: usize) -> Thread {
+        Thread {
+            gid,
+            dir: dir::ThreadDir::newwrite(bufsiz),
+            stat: stat::ThreadStat::newwrite(),
+            ..Default::default()
+        }
+    }
+
+    pub(crate) fn is_reader(&self, opt: &Opt) -> bool {
         self.gid < opt.num_reader
     }
 
-    pub fn is_writer(&self, opt: &Opt) -> bool {
+    pub(crate) fn is_writer(&self, opt: &Opt) -> bool {
         !self.is_reader(opt)
     }
-}
 
-pub fn newread(gid: usize, bufsiz: usize) -> Thread {
-    Thread {
-        gid,
-        dir: dir::newread(bufsiz),
-        stat: stat::newread(),
-        ..Default::default()
-    }
-}
-
-pub fn newwrite(gid: usize, bufsiz: usize) -> Thread {
-    Thread {
-        gid,
-        dir: dir::newwrite(bufsiz),
-        stat: stat::newwrite(),
-        ..Default::default()
+    fn send_stat(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        if let Some(txc) = &self.txc {
+            self.stat.set_time_end();
+            txc.send((self.gid, self.stat.clone()))?;
+        }
+        Ok(())
     }
 }
 
@@ -128,15 +137,71 @@ fn debug_print_complete(repeat: isize, thr: &Thread, opt: &Opt) {
     }
 }
 
-fn thread_handler(
+fn monitor_handler(
+    n: usize,
+    rxc: Option<std::sync::mpsc::Receiver<(usize, stat::ThreadStat)>>,
+    opt: &Opt,
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    assert!(rxc.is_some());
+    assert!(opt.monitor_int_second > 0);
+    let mut tsv = vec![stat::ThreadStat::new(); n];
+    let mut timer = util::Timer::new(opt.monitor_int_second, 0);
+    let mut ready = false;
+    let rxc = rxc.unwrap();
+    let label = stringify!([monitor]);
+
+    loop {
+        let mut timeout = false;
+        match rxc.recv_timeout(std::time::Duration::from_secs(1)) {
+            Ok((gid, ts)) => tsv[gid] = ts,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                return Err(Box::new(std::io::Error::from(
+                    std::io::ErrorKind::NotConnected,
+                )));
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => timeout = true,
+        };
+        if timeout || timer.elapsed() {
+            let how = if timeout {
+                stringify!([timeout])
+            } else {
+                stringify!([timer.elapsed])
+            };
+            // not ready unless stats for all threads are ready
+            if !ready {
+                for (i, ts) in tsv.iter().enumerate() {
+                    if !ts.is_ready() {
+                        log::info!("{}{} not ready", label, how);
+                        break;
+                    } else if i == tsv.len() - 1 {
+                        ready = true;
+                    }
+                }
+            }
+            if ready {
+                log::info!("{}{} ready", label, how);
+                stat::print_stat(&tsv);
+            }
+            timer.reset();
+        }
+        if is_interrupted() {
+            break;
+        }
+    }
+    Ok(())
+}
+
+fn worker_handler(
     input_path: &str,
     fl: Option<&Vec<String>>,
     thr: &mut Thread,
     dir: &dir::Dir,
     opt: &Opt,
-) -> std::io::Result<()> {
-    let iter_walk = opt.path_iter == PATH_ITER_WALK;
-    let duration = opt.time_minute * 60 + opt.time_second;
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    assert!(thr.txc.is_some() || opt.monitor_int_second == 0);
+    assert!(thr.txc.is_none() || opt.monitor_int_second > 0);
+    let d = opt.time_second;
+    let mut timer = util::Timer::new(opt.monitor_int_second, 1000);
     let mut repeat = 0;
 
     // assert thr
@@ -147,11 +212,14 @@ fn thread_handler(
     // start loop
     thr.stat.set_input_path(input_path);
 
+    // send initial stats
+    thr.send_stat()?;
+
     // Note that PATH_ITER_WALK can fall into infinite loop when used
     // in conjunction with writer or symlink.
     loop {
         // either walk or select from input path
-        if iter_walk {
+        if opt.path_iter == PATH_ITER_WALK {
             for entry in walkdir::WalkDir::new(input_path)
                 .into_iter()
                 .filter_map(|e| e.ok())
@@ -167,9 +235,13 @@ fn thread_handler(
                     thr.num_interrupted += 1;
                     break;
                 }
-                if duration > 0 && thr.stat.time_elapsed() > duration {
+                if d > 0 && thr.stat.time_elapsed() > d {
                     thr.num_complete += 1;
                     break;
+                }
+                if timer.elapsed() {
+                    thr.send_stat()?;
+                    timer.reset();
                 }
             }
         } else {
@@ -179,7 +251,11 @@ fn thread_handler(
                     PATH_ITER_ORDERED => i,
                     PATH_ITER_REVERSE => fl.len() - 1 - i,
                     PATH_ITER_RANDOM => util::get_random(0..fl.len()),
-                    _ => return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput)),
+                    _ => {
+                        return Err(Box::new(std::io::Error::from(
+                            std::io::ErrorKind::InvalidInput,
+                        )))
+                    }
                 };
                 let f = &fl[idx];
                 assert!(f.starts_with(input_path));
@@ -192,9 +268,13 @@ fn thread_handler(
                     thr.num_interrupted += 1;
                     break;
                 }
-                if duration > 0 && thr.stat.time_elapsed() > duration {
+                if d > 0 && thr.stat.time_elapsed() > d {
                     thr.num_complete += 1;
                     break;
+                }
+                if timer.elapsed() {
+                    thr.send_stat()?;
+                    timer.reset();
                 }
             }
         }
@@ -213,6 +293,9 @@ fn thread_handler(
         }
     }
 
+    // send stats in case finished before sending any updates
+    thr.send_stat()?;
+
     if thr.is_reader(opt) {
         assert!(opt.num_repeat > 0);
         assert!(repeat >= opt.num_repeat);
@@ -223,13 +306,15 @@ fn thread_handler(
     Ok(())
 }
 
-pub fn dispatch_worker(
+pub(crate) fn dispatch_worker(
     input: &[String],
     opt: &Opt,
 ) -> std::io::Result<(usize, usize, usize, usize, Vec<stat::ThreadStat>)> {
     for f in input.iter() {
         assert!(util::is_abspath(f));
     }
+    assert!(opt.time_minute == 0);
+    assert!(opt.monitor_int_minute == 0);
 
     // number of readers and writers are 0 by default
     if opt.num_reader == 0 && opt.num_writer == 0 {
@@ -237,15 +322,15 @@ pub fn dispatch_worker(
     }
 
     // initialize dir
-    let dir = dir::newdir(opt.random_write_data, &opt.write_paths_type);
+    let dir = dir::Dir::new(opt.random_write_data, &opt.write_paths_type);
 
     // initialize thread structure
     let mut thrv = vec![];
     for i in 0..opt.num_reader + opt.num_writer {
         if i < opt.num_reader {
-            thrv.push(newread(i, opt.read_buffer_size));
+            thrv.push(Thread::newread(i, opt.read_buffer_size));
         } else {
-            thrv.push(newwrite(i, opt.write_buffer_size));
+            thrv.push(Thread::newwrite(i, opt.write_buffer_size));
         }
     }
     assert!(thrv.len() == opt.num_reader + opt.num_writer);
@@ -258,8 +343,30 @@ pub fn dispatch_worker(
         assert!(!fls.is_empty());
     }
 
+    // create channels for workers to send stats to monitor
+    let use_monitor = opt.monitor_int_second > 0;
+    let n = thrv.len();
+    let mut rxc = None;
+    if use_monitor {
+        let l = std::sync::mpsc::channel::<(usize, stat::ThreadStat)>();
+        for thr in thrv.iter_mut() {
+            thr.txc = Some(l.0.clone());
+        }
+        rxc = Some(l.1);
+    }
+
     // spawn + join threads
     std::thread::scope(|s| {
+        if use_monitor {
+            s.spawn(|| {
+                let tid = std::thread::current().id();
+                log::info!("{:?} monitor start", tid);
+                if let Err(e) = monitor_handler(n, rxc, opt) {
+                    log::info!("{:?} {}", tid, e);
+                    println!("{}", e);
+                }
+            });
+        }
         for thr in thrv.iter_mut() {
             s.spawn(|| {
                 let tid = std::thread::current().id();
@@ -271,7 +378,7 @@ pub fn dispatch_worker(
                     None
                 };
                 thr.stat.set_time_begin();
-                if let Err(e) = thread_handler(input_path, fl, thr, &dir, opt) {
+                if let Err(e) = worker_handler(input_path, fl, thr, &dir, opt) {
                     thr.num_error += 1;
                     log::info!("{:?} #{} {}", tid, thr.gid, e);
                     println!("{}", e);

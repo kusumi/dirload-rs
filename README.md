@@ -1,4 +1,4 @@
-dirload-rs ([v0.1.1](https://github.com/kusumi/dirload-rs/releases/tag/v0.1.1))
+dirload-rs ([v0.1.2](https://github.com/kusumi/dirload-rs/releases/tag/v0.1.2))
 ========
 
 ## About
@@ -26,17 +26,23 @@ Recent version of Rust
     
     Options:
             --num_reader <uint>
-                            Number of reader Goroutines
+                            Number of reader threads
             --num_writer <uint>
-                            Number of writer Goroutines
+                            Number of writer threads
             --num_repeat <int>
-                            Exit Goroutines after specified iterations if > 0
+                            Exit threads after specified iterations if > 0
             --time_minute <uint>
-                            Exit Goroutines after sum of this and -time_second
-                            option if > 0
+                            Exit threads after sum of this and -time_second option
+                            if > 0
             --time_second <uint>
-                            Exit Goroutines after sum of this and -time_minute
-                            option if > 0
+                            Exit threads after sum of this and -time_minute option
+                            if > 0
+            --monitor_interval_minute <uint>
+                            Monitor threads every sum of this and
+                            -monitor_interval_second option if > 0
+            --monitor_interval_second <uint>
+                            Monitor threads every sum of this and
+                            -monitor_interval_minute option if > 0
             --stat_only     Do not read file data
             --ignore_dot    Ignore entries start with .
             --lstat         Do not resolve symbolic links
@@ -53,8 +59,8 @@ Recent version of Rust
             --random_write_data
                             Use pseudo random write data
             --num_write_paths <int>
-                            Exit writer Goroutines after creating specified files
-                            or directories if > 0
+                            Exit writer threads after creating specified files or
+                            directories if > 0
             --truncate_write_paths
                             ftruncate(2) write paths for regular files instead of
                             write(2)
@@ -63,7 +69,7 @@ Recent version of Rust
             --dirsync_write_paths
                             fsync(2) parent directories of write paths
             --keep_write_paths
-                            Do not unlink write paths after writer Goroutines exit
+                            Do not unlink write paths after writer threads exit
             --clean_write_paths
                             Unlink existing write paths and exit
             --write_paths_base <string>

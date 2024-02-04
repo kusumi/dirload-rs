@@ -3,7 +3,7 @@ use std::io::Write;
 
 use crate::util;
 
-pub fn init_flist(input: &str, ignore_dot: bool) -> std::io::Result<Vec<String>> {
+pub(crate) fn init_flist(input: &str, ignore_dot: bool) -> std::io::Result<Vec<String>> {
     let mut l = vec![];
     for entry in walkdir::WalkDir::new(input)
         .into_iter()
@@ -30,7 +30,7 @@ pub fn init_flist(input: &str, ignore_dot: bool) -> std::io::Result<Vec<String>>
     Ok(l)
 }
 
-pub fn load_flist_file(flist_file: &str) -> std::io::Result<Vec<String>> {
+pub(crate) fn load_flist_file(flist_file: &str) -> std::io::Result<Vec<String>> {
     let mut fl = vec![];
     let fp = std::fs::File::open(flist_file)?;
     for s in std::io::BufReader::new(fp).lines() {
@@ -42,13 +42,13 @@ pub fn load_flist_file(flist_file: &str) -> std::io::Result<Vec<String>> {
     Ok(fl)
 }
 
-pub fn create_flist_file(
+pub(crate) fn create_flist_file(
     input: &[String],
     flist_file: &str,
     ignore_dot: bool,
     force: bool,
 ) -> std::io::Result<()> {
-    if util::path_exists(flist_file).is_ok() {
+    if util::path_exists_or_error(flist_file).is_ok() {
         if force {
             match std::fs::remove_file(flist_file) {
                 Ok(_) => println!("Removed {}", flist_file),

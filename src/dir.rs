@@ -5,64 +5,68 @@ use crate::util;
 use crate::worker;
 use crate::Opt;
 
-pub const MAX_BUFFER_SIZE: usize = 128 * 1024;
+pub(crate) const MAX_BUFFER_SIZE: usize = 128 * 1024;
 const WRITE_PATHS_PREFIX: &str = "dirload";
 
 #[derive(Debug, Default)]
-pub struct ThreadDir {
+pub(crate) struct ThreadDir {
     read_buffer: Vec<u8>,
     write_buffer: Vec<u8>,
     write_paths: Vec<String>,
     write_paths_counter: u64,
 }
 
-pub fn newread(bufsiz: usize) -> ThreadDir {
-    ThreadDir {
-        read_buffer: vec![0; bufsiz],
-        ..Default::default()
+impl ThreadDir {
+    pub(crate) fn newread(bufsiz: usize) -> ThreadDir {
+        ThreadDir {
+            read_buffer: vec![0; bufsiz],
+            ..Default::default()
+        }
     }
-}
 
-pub fn newwrite(bufsiz: usize) -> ThreadDir {
-    ThreadDir {
-        write_buffer: vec![0x41; bufsiz],
-        ..Default::default()
+    pub(crate) fn newwrite(bufsiz: usize) -> ThreadDir {
+        ThreadDir {
+            write_buffer: vec![0x41; bufsiz],
+            ..Default::default()
+        }
     }
 }
 
 #[derive(Debug, Default)]
-pub struct Dir {
+pub(crate) struct Dir {
     random_write_data: Vec<u8>,
     write_paths_ts: String,
     write_paths_type: Vec<util::FileType>,
 }
 
-pub fn newdir(random: bool, write_paths_type: &str) -> Dir {
-    let mut dir = Dir {
-        ..Default::default()
-    };
-    if random {
-        for _ in 0..MAX_BUFFER_SIZE * 2 {
-            // doubled
-            dir.random_write_data.push(util::get_random(32..128));
+impl Dir {
+    pub(crate) fn new(random: bool, write_paths_type: &str) -> Dir {
+        let mut dir = Dir {
+            ..Default::default()
+        };
+        if random {
+            for _ in 0..MAX_BUFFER_SIZE * 2 {
+                // doubled
+                dir.random_write_data.push(util::get_random(32..128));
+            }
         }
-    }
-    dir.write_paths_ts = util::get_time_string();
+        dir.write_paths_ts = util::get_time_string();
 
-    assert!(!write_paths_type.is_empty());
-    for x in write_paths_type.chars() {
-        dir.write_paths_type.push(match x {
-            'd' => util::DIR,
-            'r' => util::REG,
-            's' => util::SYMLINK,
-            'l' => util::LINK,
-            _ => panic!("{}", x),
-        });
+        assert!(!write_paths_type.is_empty());
+        for x in write_paths_type.chars() {
+            dir.write_paths_type.push(match x {
+                'd' => util::DIR,
+                'r' => util::REG,
+                's' => util::SYMLINK,
+                'l' => util::LINK,
+                _ => panic!("{}", x),
+            });
+        }
+        dir
     }
-    dir
 }
 
-pub fn cleanup_write_paths(tdv: &[&ThreadDir], opt: &Opt) -> std::io::Result<usize> {
+pub(crate) fn cleanup_write_paths(tdv: &[&ThreadDir], opt: &Opt) -> std::io::Result<usize> {
     let mut l = vec![];
     for tdir in tdv.iter() {
         for f in tdir.write_paths.iter() {
@@ -80,7 +84,7 @@ pub fn cleanup_write_paths(tdv: &[&ThreadDir], opt: &Opt) -> std::io::Result<usi
     Ok(num_remain)
 }
 
-pub fn unlink_write_paths(l: &mut Vec<String>, count: isize) -> std::io::Result<()> {
+pub(crate) fn unlink_write_paths(l: &mut Vec<String>, count: isize) -> std::io::Result<()> {
     let mut n = l.len(); // unlink all by default
     if count > 0 {
         n = count as usize;
@@ -95,7 +99,7 @@ pub fn unlink_write_paths(l: &mut Vec<String>, count: isize) -> std::io::Result<
         let f = &l[l.len() - 1];
         let t = util::get_raw_file_type(f)?;
         if t == util::DIR || t == util::REG || t == util::SYMLINK {
-            if util::path_exists(f).is_err() {
+            if util::path_exists_or_error(f).is_err() {
                 continue;
             }
             if t == util::DIR {
@@ -120,7 +124,7 @@ fn assert_file_path(f: &str) {
     assert!(!f.ends_with('/'));
 }
 
-pub fn read_entry(f: &str, thr: &mut worker::Thread, opt: &Opt) -> std::io::Result<()> {
+pub(crate) fn read_entry(f: &str, thr: &mut worker::Thread, opt: &Opt) -> std::io::Result<()> {
     assert_file_path(f);
     let mut t = util::get_raw_file_type(f)?;
 
@@ -206,7 +210,12 @@ fn read_file(f: &str, thr: &mut worker::Thread, opt: &Opt) -> std::io::Result<()
     Ok(())
 }
 
-pub fn write_entry(f: &str, thr: &mut worker::Thread, dir: &Dir, opt: &Opt) -> std::io::Result<()> {
+pub(crate) fn write_entry(
+    f: &str,
+    thr: &mut worker::Thread,
+    dir: &Dir,
+    opt: &Opt,
+) -> std::io::Result<()> {
     assert_file_path(f);
     let t = util::get_raw_file_type(f)?;
 
@@ -349,7 +358,7 @@ fn fsync_inode(f: &str) -> std::io::Result<()> {
     std::fs::File::open(f)?.flush()
 }
 
-pub fn is_write_done(thr: &worker::Thread, opt: &Opt) -> bool {
+pub(crate) fn is_write_done(thr: &worker::Thread, opt: &Opt) -> bool {
     if !thr.is_writer(opt) || opt.num_write_paths <= 0 {
         false
     } else {
@@ -361,7 +370,7 @@ fn get_write_paths_base(opt: &Opt) -> String {
     format!("{}_{}", WRITE_PATHS_PREFIX, opt.write_paths_base)
 }
 
-pub fn collect_write_paths(input: &[String], opt: &Opt) -> std::io::Result<Vec<String>> {
+pub(crate) fn collect_write_paths(input: &[String], opt: &Opt) -> std::io::Result<Vec<String>> {
     let b = get_write_paths_base(opt);
     let mut l = vec![];
     for f in util::remove_dup_string(input) {

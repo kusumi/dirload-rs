@@ -1,6 +1,6 @@
 #[derive(Clone, Debug)]
-pub struct ThreadStat {
-    pub is_reader: bool,
+pub(crate) struct ThreadStat {
+    pub(crate) is_reader: bool,
     input_path: String,
     time_begin: std::time::SystemTime,
     time_end: std::time::SystemTime,
@@ -29,63 +29,73 @@ impl Default for ThreadStat {
     }
 }
 
-pub fn newread() -> ThreadStat {
-    ThreadStat {
-        is_reader: true,
-        ..Default::default()
-    }
-}
-
-pub fn newwrite() -> ThreadStat {
-    ThreadStat {
-        is_reader: false,
-        ..Default::default()
-    }
-}
-
 impl ThreadStat {
-    pub fn set_input_path(&mut self, f: &str) {
+    pub(crate) fn new() -> ThreadStat {
+        ThreadStat {
+            ..Default::default()
+        }
+    }
+
+    pub(crate) fn newread() -> ThreadStat {
+        ThreadStat {
+            is_reader: true,
+            ..Default::default()
+        }
+    }
+
+    pub(crate) fn newwrite() -> ThreadStat {
+        ThreadStat {
+            is_reader: false,
+            ..Default::default()
+        }
+    }
+
+    pub(crate) fn is_ready(&self) -> bool {
+        !self.input_path.is_empty()
+    }
+
+    pub(crate) fn set_input_path(&mut self, f: &str) {
         self.input_path = f.to_string();
     }
 
-    pub fn set_time_begin(&mut self) {
+    pub(crate) fn set_time_begin(&mut self) {
         self.time_begin = std::time::SystemTime::now();
     }
 
-    pub fn set_time_end(&mut self) {
+    pub(crate) fn set_time_end(&mut self) {
         self.time_end = std::time::SystemTime::now();
     }
 
-    pub fn time_elapsed(&self) -> u64 {
+    pub(crate) fn time_elapsed(&self) -> u64 {
         self.time_begin.elapsed().unwrap().as_secs()
     }
 
-    pub fn inc_num_repeat(&mut self) {
+    pub(crate) fn inc_num_repeat(&mut self) {
         self.num_repeat += 1;
     }
 
-    pub fn inc_num_stat(&mut self) {
+    pub(crate) fn inc_num_stat(&mut self) {
         self.num_stat += 1;
     }
 
-    pub fn inc_num_read(&mut self) {
+    pub(crate) fn inc_num_read(&mut self) {
         self.num_read += 1;
     }
 
-    pub fn add_num_read_bytes(&mut self, siz: usize) {
+    pub(crate) fn add_num_read_bytes(&mut self, siz: usize) {
         self.num_read_bytes += siz;
     }
 
-    pub fn inc_num_write(&mut self) {
+    pub(crate) fn inc_num_write(&mut self) {
         self.num_write += 1;
     }
 
-    pub fn add_num_write_bytes(&mut self, siz: usize) {
+    pub(crate) fn add_num_write_bytes(&mut self, siz: usize) {
         self.num_write_bytes += siz;
     }
 }
 
-pub fn print_stat(tsv: &Vec<ThreadStat>) {
+pub(crate) fn print_stat(tsv: &Vec<ThreadStat>) {
     // repeat
     let mut width_repeat = "repeat".len();
     for ts in tsv.iter() {
@@ -322,7 +332,7 @@ pub fn print_stat(tsv: &Vec<ThreadStat>) {
 mod tests {
     #[test]
     fn test_newread() {
-        let ts = super::newread();
+        let ts = super::ThreadStat::newread();
         if !ts.is_reader {
             panic!("{}", ts.is_reader);
         }
@@ -351,7 +361,7 @@ mod tests {
 
     #[test]
     fn test_newwrite() {
-        let ts = super::newwrite();
+        let ts = super::ThreadStat::newwrite();
         if ts.is_reader {
             panic!("{}", ts.is_reader);
         }
@@ -380,7 +390,7 @@ mod tests {
 
     #[test]
     fn test_set_time() {
-        let mut ts = super::newread();
+        let mut ts = super::ThreadStat::newread();
         let d = match ts.time_end.duration_since(ts.time_begin) {
             Ok(v) => v,
             Err(e) => panic!("{}", e),
@@ -425,7 +435,7 @@ mod tests {
 
     #[test]
     fn test_inc_num_repeat() {
-        let mut ts = super::newread();
+        let mut ts = super::ThreadStat::newread();
         ts.inc_num_repeat();
         if ts.num_repeat != 1 {
             panic!("{}", ts.num_repeat);
@@ -438,7 +448,7 @@ mod tests {
 
     #[test]
     fn test_inc_num_stat() {
-        let mut ts = super::newread();
+        let mut ts = super::ThreadStat::newread();
         ts.inc_num_stat();
         if ts.num_stat != 1 {
             panic!("{}", ts.num_stat);
@@ -451,7 +461,7 @@ mod tests {
 
     #[test]
     fn test_inc_num_read() {
-        let mut ts = super::newread();
+        let mut ts = super::ThreadStat::newread();
         ts.inc_num_read();
         if ts.num_read != 1 {
             panic!("{}", ts.num_read);
@@ -464,7 +474,7 @@ mod tests {
 
     #[test]
     fn test_add_num_read_bytes() {
-        let mut ts = super::newread();
+        let mut ts = super::ThreadStat::newread();
         let siz = 1234;
         ts.add_num_read_bytes(siz);
         if ts.num_read_bytes != siz {
@@ -482,7 +492,7 @@ mod tests {
 
     #[test]
     fn test_inc_num_write() {
-        let mut ts = super::newread();
+        let mut ts = super::ThreadStat::newread();
         ts.inc_num_write();
         if ts.num_write != 1 {
             panic!("{}", ts.num_write);
@@ -495,7 +505,7 @@ mod tests {
 
     #[test]
     fn test_add_num_write_bytes() {
-        let mut ts = super::newread();
+        let mut ts = super::ThreadStat::newread();
         let siz = 1234;
         ts.add_num_write_bytes(siz);
         if ts.num_write_bytes != siz {
