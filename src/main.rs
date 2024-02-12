@@ -4,10 +4,11 @@ mod stat;
 mod util;
 mod worker;
 
-const VERSION: [i32; 3] = [0, 1, 2];
+const VERSION: [i32; 3] = [0, 1, 3];
 
 #[derive(Debug)]
 struct Opt {
+    num_set: usize,
     num_reader: usize,
     num_writer: usize,
     num_repeat: isize,
@@ -42,6 +43,7 @@ struct Opt {
 impl Default for Opt {
     fn default() -> Opt {
         Opt {
+            num_set: 1,
             num_reader: 0,
             num_writer: 0,
             num_repeat: -1,
@@ -118,6 +120,7 @@ fn main() {
     let progname = args[0].clone();
 
     let mut opts = getopts::Options::new();
+    opts.optopt("", "num_set", "Number of sets to run", "<uint>");
     opts.optopt("", "num_reader", "Number of reader threads", "<uint>");
     opts.optopt("", "num_writer", "Number of writer threads", "<uint>");
     opts.optopt(
@@ -234,6 +237,9 @@ fn main() {
     let mut opt = Opt {
         ..Default::default()
     };
+    if matches.opt_present("num_set") {
+        opt.num_set = matches.opt_str("num_set").unwrap().parse().unwrap();
+    }
     if matches.opt_present("num_reader") {
         opt.num_reader = matches.opt_str("num_reader").unwrap().parse().unwrap();
     }
@@ -288,7 +294,7 @@ fn main() {
         opt.read_size = matches.opt_str("read_size").unwrap().parse().unwrap();
         if opt.read_size < -1 {
             opt.read_size = -1;
-        } else if opt.read_size as usize > dir::MAX_BUFFER_SIZE {
+        } else if opt.read_size > dir::MAX_BUFFER_SIZE as isize {
             println!("Invalid read size {}", opt.read_size);
             std::process::exit(1);
         }
@@ -308,7 +314,7 @@ fn main() {
         opt.write_size = matches.opt_str("write_size").unwrap().parse().unwrap();
         if opt.write_size < -1 {
             opt.write_size = -1;
-        } else if opt.write_size as usize > dir::MAX_BUFFER_SIZE {
+        } else if opt.write_size > dir::MAX_BUFFER_SIZE as isize {
             println!("Invalid write size {}", opt.write_size);
             std::process::exit(1);
         }
@@ -420,7 +426,7 @@ fn main() {
             }
             // /path/to/dir is allowed, but /path/to is not
             if count < 3 {
-                println!("{} not allowed", absf);
+                println!("{} not allowed, use --force option to proceed", absf);
                 std::process::exit(1);
             }
         }
@@ -465,33 +471,44 @@ fn main() {
     }
 
     // ready to dispatch workers
-    let (_, num_interrupted, num_error, num_remain, tsv) =
-        match worker::dispatch_worker(&input, &opt) {
-            Ok(v) => v,
-            Err(e) => panic!("{}", e),
-        };
-    if num_interrupted > 0 {
-        let mut s = "";
-        if num_interrupted > 1 {
-            s = "s";
+    for i in 0..opt.num_set {
+        if opt.num_set != 1 {
+            println!("{}", "=".repeat(80));
+            let s = format!("Set {}/{}", i + 1, opt.num_set);
+            println!("{}", s);
+            log::info!("{}", s);
         }
-        println!(); // ^C
-        println!("{} worker{} interrupted", num_interrupted, s);
-    }
-    if num_error > 0 {
-        let mut s = "";
-        if num_error > 1 {
-            s = "s";
+        let (_, num_interrupted, num_error, num_remain, tsv) =
+            match worker::dispatch_worker(&input, &opt) {
+                Ok(v) => v,
+                Err(e) => panic!("{}", e),
+            };
+        if num_interrupted > 0 {
+            let mut s = "";
+            if num_interrupted > 1 {
+                s = "s";
+            }
+            println!("{} worker{} interrupted", num_interrupted, s);
         }
-        println!("{} worker{} failed", num_error, s);
-    }
-    if num_remain > 0 {
-        let mut s = "";
-        if num_remain > 1 {
-            s = "s";
+        if num_error > 0 {
+            let mut s = "";
+            if num_error > 1 {
+                s = "s";
+            }
+            println!("{} worker{} failed", num_error, s);
         }
-        println!("{} write path{} remaining", num_remain, s);
+        if num_remain > 0 {
+            let mut s = "";
+            if num_remain > 1 {
+                s = "s";
+            }
+            println!("{} write path{} remaining", num_remain, s);
+        }
+        stat::print_stat(&tsv);
+        if num_interrupted > 0 {
+            break;
+        } else if opt.num_set != 1 && i != opt.num_set - 1 {
+            println!();
+        }
     }
-
-    stat::print_stat(&tsv);
 }

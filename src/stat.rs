@@ -1,6 +1,6 @@
 #[derive(Clone, Debug)]
 pub(crate) struct ThreadStat {
-    pub(crate) is_reader: bool,
+    is_reader: bool,
     input_path: String,
     time_begin: std::time::SystemTime,
     time_end: std::time::SystemTime,
@@ -10,6 +10,7 @@ pub(crate) struct ThreadStat {
     num_read_bytes: usize,
     num_write: usize,
     num_write_bytes: usize,
+    pub(crate) done: bool,
 }
 
 impl Default for ThreadStat {
@@ -25,6 +26,7 @@ impl Default for ThreadStat {
             num_read_bytes: 0,
             num_write: 0,
             num_write_bytes: 0,
+            done: false,
         }
     }
 }

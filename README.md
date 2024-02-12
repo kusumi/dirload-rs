@@ -1,4 +1,4 @@
-dirload-rs ([v0.1.2](https://github.com/kusumi/dirload-rs/releases/tag/v0.1.2))
+dirload-rs ([v0.1.3](https://github.com/kusumi/dirload-rs/releases/tag/v0.1.3))
 ========
 
 ## About
@@ -25,6 +25,8 @@ Recent version of Rust
     usage: ./target/release/dirload-rs [<options>] <paths>
     
     Options:
+            --num_set <uint>
+                            Number of sets to run
             --num_reader <uint>
                             Number of reader threads
             --num_writer <uint>

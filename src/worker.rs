@@ -55,6 +55,14 @@ impl Thread {
         }
         Ok(())
     }
+
+    fn send_done(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        if let Some(txc) = &self.txc {
+            self.stat.done = true;
+            txc.send((self.gid, self.stat.clone()))?;
+        }
+        Ok(())
+    }
 }
 
 fn setup_flist_impl(input: &[String], opt: &Opt) -> std::io::Result<Vec<Vec<String>>> {
@@ -148,7 +156,6 @@ fn monitor_handler(
     let mut timer = util::Timer::new(opt.monitor_int_second, 0);
     let mut ready = false;
     let rxc = rxc.unwrap();
-    let label = stringify!([monitor]);
 
     loop {
         let mut timeout = false;
@@ -161,30 +168,38 @@ fn monitor_handler(
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => timeout = true,
         };
-        if timeout || timer.elapsed() {
-            let how = if timeout {
-                stringify!([timeout])
-            } else {
-                stringify!([timer.elapsed])
-            };
-            // not ready unless stats for all threads are ready
+        if !timeout {
+            // exit if stats for all threads are done
+            for (i, ts) in tsv.iter().enumerate() {
+                if !ts.done {
+                    break;
+                } else if i == tsv.len() - 1 {
+                    return Ok(());
+                }
+            }
+            // confirm if stats for all threads are ready
             if !ready {
                 for (i, ts) in tsv.iter().enumerate() {
                     if !ts.is_ready() {
-                        log::info!("{}{} not ready", label, how);
                         break;
                     } else if i == tsv.len() - 1 {
                         ready = true;
                     }
                 }
             }
+        }
+        if timer.elapsed() {
+            let label = stringify!([monitor]);
             if ready {
-                log::info!("{}{} ready", label, how);
+                log::info!("{} ready", label);
                 stat::print_stat(&tsv);
+            } else {
+                log::info!("{} not ready", label);
             }
             timer.reset();
         }
-        if is_interrupted() {
+        // only allow existing via message by default
+        if opt.debug && is_interrupted() {
             break;
         }
     }
@@ -201,7 +216,7 @@ fn worker_handler(
     assert!(thr.txc.is_some() || opt.monitor_int_second == 0);
     assert!(thr.txc.is_none() || opt.monitor_int_second > 0);
     let d = opt.time_second;
-    let mut timer = util::Timer::new(opt.monitor_int_second, 1000);
+    let mut timer = util::Timer::new(opt.monitor_int_second, 100);
     let mut repeat = 0;
 
     // assert thr
@@ -236,6 +251,7 @@ fn worker_handler(
                     break;
                 }
                 if d > 0 && thr.stat.time_elapsed() > d {
+                    debug_print_complete(repeat, thr, opt);
                     thr.num_complete += 1;
                     break;
                 }
@@ -269,6 +285,7 @@ fn worker_handler(
                     break;
                 }
                 if d > 0 && thr.stat.time_elapsed() > d {
+                    debug_print_complete(repeat, thr, opt);
                     thr.num_complete += 1;
                     break;
                 }
@@ -280,6 +297,7 @@ fn worker_handler(
         }
         // return if interrupted or complete
         if thr.num_interrupted > 0 || thr.num_complete > 0 {
+            thr.send_done()?;
             return Ok(()); // not break
         }
         // otherwise continue until num_repeat if specified
@@ -295,6 +313,7 @@ fn worker_handler(
 
     // send stats in case finished before sending any updates
     thr.send_stat()?;
+    thr.send_done()?;
 
     if thr.is_reader(opt) {
         assert!(opt.num_repeat > 0);
