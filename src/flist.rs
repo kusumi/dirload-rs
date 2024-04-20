@@ -7,24 +7,18 @@ pub(crate) fn init_flist(input: &str, ignore_dot: bool) -> std::io::Result<Vec<S
     let mut l = vec![];
     for entry in walkdir::WalkDir::new(input)
         .into_iter()
-        .filter_map(|e| e.ok())
+        .filter_map(std::result::Result::ok)
     {
         let f = util::parse_walkdir_entry(&entry)?;
         let t = util::get_raw_file_type(f)?;
 
         // ignore . entries if specified
-        if ignore_dot && t != util::DIR && util::is_dot_path(f) {
+        if ignore_dot && !t.is_dir() && util::is_dot_path(f) {
             continue;
         }
-
         match t {
-            util::DIR => (),
-            util::REG => l.push(f.to_string()),
-            util::DEVICE => (),
-            util::SYMLINK => l.push(f.to_string()),
-            util::UNSUPPORTED => (),
-            util::INVALID => util::panic_file_type(f, "invalid", t),
-            _ => util::panic_file_type(f, "unknown", t),
+            util::FileType::Reg | util::FileType::Symlink => l.push(f.to_string()),
+            util::FileType::Dir | util::FileType::Device | util::FileType::Unsupported => (),
         }
     }
     Ok(l)
@@ -51,7 +45,7 @@ pub(crate) fn create_flist_file(
     if util::path_exists_or_error(flist_file).is_ok() {
         if force {
             match std::fs::remove_file(flist_file) {
-                Ok(_) => println!("Removed {}", flist_file),
+                Ok(()) => println!("Removed {flist_file}"),
                 Err(e) => return Err(e),
             }
         } else {
@@ -60,12 +54,12 @@ pub(crate) fn create_flist_file(
     }
 
     let mut fl = vec![];
-    for f in input.iter() {
+    for f in input {
         match init_flist(f, ignore_dot) {
             Ok(v) => {
                 println!("{} files scanned from {}", v.len(), f);
-                for s in v.iter() {
-                    fl.push(s.to_string())
+                for s in &v {
+                    fl.push(s.to_string());
                 }
             }
             Err(e) => return Err(e),
@@ -75,9 +69,9 @@ pub(crate) fn create_flist_file(
 
     let fp = std::fs::File::create(flist_file)?;
     let mut writer = std::io::BufWriter::new(fp);
-    for s in fl.iter() {
+    for s in &fl {
         assert!(util::is_abspath(s));
-        writeln!(writer, "{}", s)?;
+        writeln!(writer, "{s}")?;
     }
     writer.flush()?;
     Ok(())

@@ -1,14 +1,17 @@
 bin:
 	cargo build --release
+clean:
+	cargo clean
 fmt:
 	cargo fmt
 	git status
+lint:
+	cargo clippy --release --fix --all
+	git status
+plint:
+	cargo clippy --release --fix --all -- -W clippy::pedantic
+	git status
 test:
 	cargo test --release
-clean:
-	cargo clean
-lint:
-	cargo clippy --release --fix
-	git status
 
 xxx:	fmt lint test

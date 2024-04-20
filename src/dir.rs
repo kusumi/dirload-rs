@@ -8,6 +8,34 @@ use crate::Opt;
 pub(crate) const MAX_BUFFER_SIZE: usize = 128 * 1024;
 const WRITE_PATHS_PREFIX: &str = "dirload";
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum WritePathsType {
+    Dir,
+    Reg,
+    Symlink,
+    Link, // hardlink
+}
+
+impl WritePathsType {
+    #[allow(dead_code)]
+    pub(crate) fn is_dir(&self) -> bool {
+        matches!(self, WritePathsType::Dir)
+    }
+
+    pub(crate) fn is_reg(&self) -> bool {
+        matches!(self, WritePathsType::Reg)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn is_symlink(&self) -> bool {
+        matches!(self, WritePathsType::Symlink)
+    }
+
+    pub(crate) fn is_link(&self) -> bool {
+        matches!(self, WritePathsType::Link)
+    }
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct ThreadDir {
     read_buffer: Vec<u8>,
@@ -17,15 +45,15 @@ pub(crate) struct ThreadDir {
 }
 
 impl ThreadDir {
-    pub(crate) fn newread(bufsiz: usize) -> ThreadDir {
-        ThreadDir {
+    pub(crate) fn newread(bufsiz: usize) -> Self {
+        Self {
             read_buffer: vec![0; bufsiz],
             ..Default::default()
         }
     }
 
-    pub(crate) fn newwrite(bufsiz: usize) -> ThreadDir {
-        ThreadDir {
+    pub(crate) fn newwrite(bufsiz: usize) -> Self {
+        Self {
             write_buffer: vec![0x41; bufsiz],
             ..Default::default()
         }
@@ -36,12 +64,11 @@ impl ThreadDir {
 pub(crate) struct Dir {
     random_write_data: Vec<u8>,
     write_paths_ts: String,
-    write_paths_type: Vec<util::FileType>,
 }
 
 impl Dir {
-    pub(crate) fn new(random: bool, write_paths_type: &str) -> Dir {
-        let mut dir = Dir {
+    pub(crate) fn new(random: bool) -> Self {
+        let mut dir = Self {
             ..Default::default()
         };
         if random {
@@ -51,25 +78,14 @@ impl Dir {
             }
         }
         dir.write_paths_ts = util::get_time_string();
-
-        assert!(!write_paths_type.is_empty());
-        for x in write_paths_type.chars() {
-            dir.write_paths_type.push(match x {
-                'd' => util::DIR,
-                'r' => util::REG,
-                's' => util::SYMLINK,
-                'l' => util::LINK,
-                _ => panic!("{}", x),
-            });
-        }
         dir
     }
 }
 
 pub(crate) fn cleanup_write_paths(tdv: &[&ThreadDir], opt: &Opt) -> std::io::Result<usize> {
     let mut l = vec![];
-    for tdir in tdv.iter() {
-        for f in tdir.write_paths.iter() {
+    for tdir in tdv {
+        for f in &tdir.write_paths {
             l.push(f.to_string());
         }
     }
@@ -87,30 +103,31 @@ pub(crate) fn cleanup_write_paths(tdv: &[&ThreadDir], opt: &Opt) -> std::io::Res
 pub(crate) fn unlink_write_paths(l: &mut Vec<String>, count: isize) -> std::io::Result<()> {
     let mut n = l.len(); // unlink all by default
     if count > 0 {
-        n = count as usize;
+        n = count.try_into().unwrap();
         if n > l.len() {
             n = l.len();
         }
     }
-    println!("Unlink {} write paths", n);
+    println!("Unlink {n} write paths");
     l.sort();
 
     while n > 0 {
         let f = &l[l.len() - 1];
         let t = util::get_raw_file_type(f)?;
-        if t == util::DIR || t == util::REG || t == util::SYMLINK {
-            if util::path_exists_or_error(f).is_err() {
-                continue;
+        match t {
+            util::FileType::Dir | util::FileType::Reg | util::FileType::Symlink => {
+                if util::path_exists_or_error(f).is_err() {
+                    continue;
+                }
+                if t.is_dir() {
+                    std::fs::remove_dir(f)?;
+                } else {
+                    std::fs::remove_file(f)?;
+                }
+                l.truncate(l.len() - 1);
+                n -= 1;
             }
-            if t == util::DIR {
-                std::fs::remove_dir(f)?;
-            } else {
-                std::fs::remove_file(f)?;
-            }
-            l.truncate(l.len() - 1);
-            n -= 1;
-        } else {
-            return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput));
+            _ => return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput)),
         }
     }
     Ok(())
@@ -132,7 +149,7 @@ pub(crate) fn read_entry(f: &str, thr: &mut worker::Thread, opt: &Opt) -> std::i
     thr.stat.inc_num_stat();
 
     // ignore . entries if specified
-    if opt.ignore_dot && t != util::DIR && util::is_dot_path(f) {
+    if opt.ignore_dot && !t.is_dir() && util::is_dot_path(f) {
         return Ok(());
     }
 
@@ -141,32 +158,29 @@ pub(crate) fn read_entry(f: &str, thr: &mut worker::Thread, opt: &Opt) -> std::i
         return Ok(());
     }
 
-    let mut x = f.to_string();
-
     // find target if symlink
-    if t == util::SYMLINK {
-        let l = x.clone();
-        x = util::read_link(&x)?;
+    let mut x;
+    if t.is_symlink() {
+        x = util::read_link(f)?;
         thr.stat.add_num_read_bytes(x.len());
         if !util::is_abspath(&x) {
-            x = util::join_path(&util::get_dirpath(&l)?, &x);
+            x = util::join_path(&util::get_dirpath(f)?, &x);
             assert!(util::is_abspath(&x));
         }
-        t = util::get_file_type(&x)?;
+        t = util::get_file_type(&x)?; // update type
         thr.stat.inc_num_stat(); // count twice for symlink
-        assert!(t != util::SYMLINK); // symlink chains resolved
-        if opt.lstat {
+        assert!(!t.is_symlink()); // symlink chains resolved
+        if !opt.follow_symlink {
             return Ok(());
         }
+    } else {
+        x = f.to_string();
     }
 
     match t {
-        util::DIR => (),
-        util::REG => return read_file(&x, thr, opt),
-        util::DEVICE => (),
-        util::UNSUPPORTED => (),
-        util::INVALID => util::panic_file_type(&x, "invalid", t),
-        _ => util::panic_file_type(&x, "unknown", t),
+        util::FileType::Reg => return read_file(&x, thr, opt),
+        util::FileType::Dir | util::FileType::Device | util::FileType::Unsupported => (),
+        util::FileType::Symlink => panic!("{x} is symlink"),
     }
     Ok(())
 }
@@ -177,16 +191,16 @@ fn read_file(f: &str, thr: &mut worker::Thread, opt: &Opt) -> std::io::Result<()
     let mut resid = opt.read_size; // negative resid means read until EOF
 
     if resid == 0 {
-        resid = util::get_random(0..b.len()) as isize + 1;
+        resid = isize::try_from(util::get_random(0..b.len())).unwrap() + 1;
         assert!(resid > 0);
-        assert!(resid as usize <= b.len());
+        assert!(resid <= isize::try_from(b.len()).unwrap());
     }
     assert!(resid == -1 || resid > 0);
 
     loop {
         // cut slice size if > positive residual
-        if resid > 0 && b.len() > resid as usize {
-            b = &mut b[..resid as usize];
+        if resid > 0 && b.len() > usize::try_from(resid).unwrap() {
+            b = &mut b[..usize::try_from(resid).unwrap()];
         }
 
         let siz = fp.read(b)?;
@@ -198,7 +212,7 @@ fn read_file(f: &str, thr: &mut worker::Thread, opt: &Opt) -> std::io::Result<()
 
         // end if positive residual becomes <= 0
         if resid > 0 {
-            resid -= siz as isize;
+            resid -= isize::try_from(siz).unwrap();
             if resid >= 0 {
                 if opt.debug {
                     assert!(resid == 0);
@@ -223,18 +237,14 @@ pub(crate) fn write_entry(
     thr.stat.inc_num_stat();
 
     // ignore . entries if specified
-    if opt.ignore_dot && t != util::DIR && util::is_dot_path(f) {
+    if opt.ignore_dot && !t.is_dir() && util::is_dot_path(f) {
         return Ok(());
     }
 
     match t {
-        util::DIR => return write_file(f, f, thr, dir, opt),
-        util::REG => return write_file(&util::get_dirpath(f)?, f, thr, dir, opt),
-        util::DEVICE => (),
-        util::SYMLINK => (),
-        util::UNSUPPORTED => (),
-        util::INVALID => util::panic_file_type(f, "invalid", t),
-        _ => util::panic_file_type(f, "unknown", t),
+        util::FileType::Dir => return write_file(f, f, thr, dir, opt),
+        util::FileType::Reg => return write_file(&util::get_dirpath(f)?, f, thr, dir, opt),
+        util::FileType::Device | util::FileType::Symlink | util::FileType::Unsupported => (),
     }
     Ok(())
 }
@@ -262,8 +272,8 @@ fn write_file(
     let newf = util::join_path(d, &newb);
 
     // create an inode
-    let i = util::get_random(0..dir.write_paths_type.len());
-    let t = dir.write_paths_type[i];
+    let i = util::get_random(0..opt.write_paths_type.len());
+    let t = opt.write_paths_type[i];
     create_inode(f, &newf, t)?;
     if opt.fsync_write_paths {
         fsync_inode(&newf)?;
@@ -274,7 +284,7 @@ fn write_file(
 
     // register the write path, and return unless regular file
     thr.dir.write_paths.push(newf.clone());
-    if t != util::REG {
+    if !t.is_reg() {
         thr.stat.inc_num_write();
         return Ok(());
     }
@@ -292,22 +302,22 @@ fn write_file(
             return Ok(());
         }
         0 => {
-            resid = util::get_random(0..b.len() as isize) + 1;
+            resid = isize::try_from(util::get_random(0..b.len())).unwrap() + 1;
             assert!(resid > 0);
-            assert!(resid <= b.len() as isize);
+            assert!(resid <= isize::try_from(b.len()).unwrap());
         }
         _ => (),
     }
     assert!(resid > 0);
 
     if opt.truncate_write_paths {
-        fp.set_len(resid as u64)?;
+        fp.set_len(resid.try_into().unwrap())?;
         thr.stat.inc_num_write();
     } else {
         loop {
             // cut slice size if > residual
-            if resid > 0 && b.len() > resid as usize {
-                b = &mut b[..resid as usize];
+            if resid > 0 && b.len() > usize::try_from(resid).unwrap() {
+                b = &mut b[..usize::try_from(resid).unwrap()];
             }
             if opt.random_write_data {
                 let i = util::get_random(0..dir.random_write_data.len() / 2);
@@ -319,7 +329,7 @@ fn write_file(
             thr.stat.add_num_write_bytes(siz);
 
             // end if residual becomes <= 0
-            resid -= siz as isize;
+            resid -= isize::try_from(siz).unwrap();
             if resid <= 0 {
                 if opt.debug {
                     assert!(resid == 0);
@@ -335,21 +345,25 @@ fn write_file(
     Ok(())
 }
 
-fn create_inode(oldf: &str, newf: &str, t: util::FileType) -> std::io::Result<()> {
+fn create_inode(oldf: &str, newf: &str, t: WritePathsType) -> std::io::Result<()> {
     let mut t = t;
-    if t == util::LINK {
-        if util::get_raw_file_type(oldf)? == util::REG {
+    if t.is_link() {
+        if util::get_raw_file_type(oldf)?.is_reg() {
             return std::fs::hard_link(oldf, newf);
         }
-        t = util::DIR // create a directory instead
+        t = WritePathsType::Dir; // create a directory instead
     }
-
-    if t == util::DIR {
-        std::fs::create_dir(newf)?;
-    } else if t == util::REG {
-        std::fs::File::create(newf)?;
-    } else if t == util::SYMLINK {
-        std::os::unix::fs::symlink(oldf, newf)?;
+    match t {
+        WritePathsType::Dir => {
+            std::fs::create_dir(newf)?;
+        }
+        WritePathsType::Reg => {
+            std::fs::File::create(newf)?;
+        }
+        WritePathsType::Symlink => {
+            std::os::unix::fs::symlink(oldf, newf)?;
+        }
+        WritePathsType::Link => (),
     }
     Ok(())
 }
@@ -362,7 +376,7 @@ pub(crate) fn is_write_done(thr: &worker::Thread, opt: &Opt) -> bool {
     if !thr.is_writer(opt) || opt.num_write_paths <= 0 {
         false
     } else {
-        thr.dir.write_paths.len() as isize >= opt.num_write_paths
+        thr.dir.write_paths.len() >= usize::try_from(opt.num_write_paths).unwrap()
     }
 }
 
@@ -374,15 +388,32 @@ pub(crate) fn collect_write_paths(input: &[String], opt: &Opt) -> std::io::Resul
     let b = get_write_paths_base(opt);
     let mut l = vec![];
     for f in util::remove_dup_string(input) {
-        for entry in walkdir::WalkDir::new(f).into_iter().filter_map(|e| e.ok()) {
+        for entry in walkdir::WalkDir::new(f)
+            .into_iter()
+            .filter_map(std::result::Result::ok)
+        {
             let x = util::parse_walkdir_entry(&entry)?;
             let t = util::get_raw_file_type(x)?;
-            if (t == util::DIR || t == util::REG || t == util::SYMLINK)
-                && util::get_basename(x)?.starts_with(&b)
-            {
-                l.push(x.to_string());
+            match t {
+                util::FileType::Dir | util::FileType::Reg | util::FileType::Symlink => {
+                    if util::get_basename(x)?.starts_with(&b) {
+                        l.push(x.to_string());
+                    }
+                }
+                _ => (),
             }
         }
     }
     Ok(l)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_get_write_paths_type_is_xxx() {
+        assert!(super::WritePathsType::Dir.is_dir());
+        assert!(super::WritePathsType::Reg.is_reg());
+        assert!(super::WritePathsType::Symlink.is_symlink());
+        assert!(super::WritePathsType::Link.is_link());
+    }
 }

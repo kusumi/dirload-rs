@@ -3,15 +3,38 @@ use rand::distributions::uniform::SampleRange;
 use rand::Rng;
 use std::os::unix::fs::FileTypeExt;
 
-pub(crate) type FileType = i32;
+#[derive(Debug)]
+pub(crate) enum FileType {
+    Dir,
+    Reg,
+    Device,
+    Symlink,
+    Unsupported,
+}
 
-pub(crate) const DIR: FileType = 0;
-pub(crate) const REG: FileType = 1;
-pub(crate) const DEVICE: FileType = 2;
-pub(crate) const SYMLINK: FileType = 3;
-pub(crate) const UNSUPPORTED: FileType = 4;
-pub(crate) const INVALID: FileType = 5;
-pub(crate) const LINK: FileType = 6; // hardlink
+impl FileType {
+    pub(crate) fn is_dir(&self) -> bool {
+        matches!(self, FileType::Dir)
+    }
+
+    pub(crate) fn is_reg(&self) -> bool {
+        matches!(self, FileType::Reg)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn is_device(&self) -> bool {
+        matches!(self, FileType::Device)
+    }
+
+    pub(crate) fn is_symlink(&self) -> bool {
+        matches!(self, FileType::Symlink)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn is_unsupported(&self) -> bool {
+        matches!(self, FileType::Unsupported)
+    }
+}
 
 pub(crate) fn read_link(f: &str) -> std::io::Result<String> {
     let p = std::fs::read_link(f)?;
@@ -77,29 +100,29 @@ pub(crate) fn get_path_separator() -> char {
 
 pub(crate) fn get_raw_file_type(f: &str) -> std::io::Result<FileType> {
     match std::fs::symlink_metadata(f) {
-        Ok(v) => Ok(get_mode_type(&v.file_type())),
+        Ok(v) => Ok(get_mode_type(v.file_type())),
         Err(e) => Err(e),
     }
 }
 
 pub(crate) fn get_file_type(f: &str) -> std::io::Result<FileType> {
     match std::fs::metadata(f) {
-        Ok(v) => Ok(get_mode_type(&v.file_type())),
+        Ok(v) => Ok(get_mode_type(v.file_type())),
         Err(e) => Err(e),
     }
 }
 
-fn get_mode_type(t: &std::fs::FileType) -> FileType {
+fn get_mode_type(t: std::fs::FileType) -> FileType {
     if t.is_dir() {
-        DIR
+        FileType::Dir
     } else if t.is_file() {
-        REG
+        FileType::Reg
     } else if t.is_symlink() {
-        SYMLINK
+        FileType::Symlink
     } else if t.is_block_device() || t.is_char_device() {
-        DEVICE
+        FileType::Device
     } else {
-        UNSUPPORTED
+        FileType::Unsupported
     }
 }
 
@@ -122,15 +145,15 @@ pub(crate) fn is_dot_path(f: &str) -> bool {
 }
 
 pub(crate) fn is_dir_writable(f: &str) -> std::io::Result<bool> {
-    if get_raw_file_type(f)? != DIR {
+    if !get_raw_file_type(f)?.is_dir() {
         return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput));
     }
 
     let x = join_path(f, &format!("dirload_write_test_{}", get_time_string()));
     match std::fs::create_dir(&x) {
-        Ok(_) => {
+        Ok(()) => {
             match std::fs::remove_dir(&x) {
-                Ok(_) => Ok(true), // read+write
+                Ok(()) => Ok(true), // read+write
                 Err(e) => Err(e),
             }
         }
@@ -140,9 +163,9 @@ pub(crate) fn is_dir_writable(f: &str) -> std::io::Result<bool> {
 
 pub(crate) fn remove_dup_string(input: &[String]) -> Vec<&str> {
     let mut l = vec![];
-    for a in input.iter() {
+    for a in input {
         let mut exists = false;
-        for b in l.iter() {
+        for b in &l {
             if a.as_str() == *b {
                 exists = true;
             }
@@ -152,14 +175,6 @@ pub(crate) fn remove_dup_string(input: &[String]) -> Vec<&str> {
         }
     }
     l
-}
-
-pub(crate) fn panic_file_type(f: &str, how: &str, t: FileType) {
-    if !f.is_empty() {
-        panic!("{} has {} file type {}", f, how, t);
-    } else {
-        panic!("{} file type {}", how, t);
-    }
 }
 
 pub(crate) fn get_time_string() -> String {
@@ -202,8 +217,8 @@ impl Default for Timer {
 }
 
 impl Timer {
-    pub(crate) fn new(duration: u64, frequency: u64) -> Timer {
-        Timer {
+    pub(crate) fn new(duration: u64, frequency: u64) -> Self {
+        Self {
             duration,
             frequency,
             ..Default::default()
@@ -270,10 +285,10 @@ mod tests {
                 o: "/does/NOT/exist",
             },
         ];
-        for x in path_list.iter() {
+        for x in &path_list {
             match super::get_abspath(x.i) {
                 Ok(v) => assert_eq!(v, x.o),
-                Err(e) => panic!("{} {:?}", e, x),
+                Err(e) => panic!("{e} {x:?}"),
             }
         }
     }
@@ -308,10 +323,10 @@ mod tests {
                 o: "/does/NOT",
             },
         ];
-        for x in path_list.iter() {
+        for x in &path_list {
             match super::get_dirpath(x.i) {
                 Ok(v) => assert_eq!(v, x.o),
-                Err(e) => panic!("{} {:?}", e, x),
+                Err(e) => panic!("{e} {x:?}"),
             }
         }
     }
@@ -349,10 +364,10 @@ mod tests {
                 o: "exist",
             },
         ];
-        for x in path_list.iter() {
+        for x in &path_list {
             match super::get_basename(x.i) {
                 Ok(v) => assert_eq!(v, x.o),
-                Err(e) => panic!("{} {:?}", e, x),
+                Err(e) => panic!("{e} {x:?}"),
             }
         }
     }
@@ -402,10 +417,8 @@ mod tests {
                 o: false,
             },
         ];
-        for x in path_list.iter() {
-            if super::is_abspath(x.i) != x.o {
-                panic!("{:?}", x);
-            }
+        for x in &path_list {
+            assert!(super::is_abspath(x.i) == x.o, "{x:?}");
         }
     }
 
@@ -422,19 +435,19 @@ mod tests {
     #[test]
     fn test_get_raw_file_type() {
         let dir_list = [".", "..", "/", "/dev"];
-        for f in dir_list.iter() {
+        for f in &dir_list {
             match super::get_raw_file_type(f) {
                 Ok(v) => match v {
-                    super::DIR => (),
-                    x => panic!("{}", x),
+                    super::FileType::Dir => (),
+                    x => panic!("{x:?}"),
                 },
-                Err(e) => panic!("{}", e),
+                Err(e) => panic!("{e}"),
             }
         }
         let invalid_list = ["", "516e7cb4-6ecf-11d6-8ff8-00022d09712b"];
-        for f in invalid_list.iter() {
+        for f in &invalid_list {
             if let Ok(v) = super::get_raw_file_type(f) {
-                panic!("{}", v);
+                panic!("{v:?}");
             }
         }
     }
@@ -442,52 +455,55 @@ mod tests {
     #[test]
     fn test_get_file_type() {
         let dir_list = [".", "..", "/", "/dev"];
-        for f in dir_list.iter() {
+        for f in &dir_list {
             match super::get_file_type(f) {
                 Ok(v) => match v {
-                    super::DIR => (),
-                    x => panic!("{}", x),
+                    super::FileType::Dir => (),
+                    x => panic!("{x:?}"),
                 },
-                Err(e) => panic!("{}", e),
+                Err(e) => panic!("{e}"),
             }
         }
         let invalid_list = ["", "516e7cb4-6ecf-11d6-8ff8-00022d09712b"];
-        for f in invalid_list.iter() {
+        for f in &invalid_list {
             if let Ok(v) = super::get_file_type(f) {
-                panic!("{}", v);
+                panic!("{v:?}");
             }
         }
     }
 
     #[test]
+    fn test_get_file_type_is_xxx() {
+        assert!(super::FileType::Dir.is_dir());
+        assert!(super::FileType::Reg.is_reg());
+        assert!(super::FileType::Device.is_device());
+        assert!(super::FileType::Symlink.is_symlink());
+        assert!(super::FileType::Unsupported.is_unsupported());
+    }
+
+    #[test]
     fn test_path_exists_or_error() {
         let dir_list = [".", "..", "/", "/dev"];
-        for f in dir_list.iter() {
+        for f in &dir_list {
             if let Err(e) = super::path_exists_or_error(f) {
-                panic!("{}", e);
+                panic!("{e}");
             }
         }
         let invalid_list = ["", "516e7cb4-6ecf-11d6-8ff8-00022d09712b"];
-        for f in invalid_list.iter() {
-            if super::path_exists_or_error(f).is_ok() {
-                panic!("{}", f);
-            }
+        for f in &invalid_list {
+            assert!(super::path_exists_or_error(f).is_err(), "{f}");
         }
     }
 
     #[test]
     fn test_path_exists() {
         let dir_list = [".", "..", "/", "/dev"];
-        for f in dir_list.iter() {
-            if !super::path_exists(f) {
-                panic!("{}", f);
-            }
+        for f in &dir_list {
+            assert!(super::path_exists(f), "{f}");
         }
         let invalid_list = ["", "516e7cb4-6ecf-11d6-8ff8-00022d09712b"];
-        for f in invalid_list.iter() {
-            if super::path_exists(f) {
-                panic!("{}", f);
-            }
+        for f in &invalid_list {
+            assert!(!super::path_exists(f), "{f}");
         }
     }
 
@@ -512,9 +528,7 @@ mod tests {
             "/path/to/..git/.xxx",
         ];
         for (i, f) in dot_list.iter().enumerate() {
-            if !super::is_dot_path(f) {
-                panic!("{} {}", i, f);
-            }
+            assert!(super::is_dot_path(f), "{i} {f}");
         }
 
         let non_dot_list = [
@@ -530,9 +544,7 @@ mod tests {
             "/path/to/git./x.xxx.",
         ];
         for (i, f) in non_dot_list.iter().enumerate() {
-            if super::is_dot_path(f) {
-                panic!("{} {}", i, f);
-            }
+            assert!(!super::is_dot_path(f), "{i} {f}");
         }
     }
 
@@ -546,11 +558,9 @@ mod tests {
         for (i, f) in writable_list.iter().enumerate() {
             match super::is_dir_writable(f) {
                 Ok(v) => {
-                    if !v {
-                        panic!("{} {}", i, v);
-                    }
+                    assert!(v, "{i} {v}");
                 }
-                Err(e) => panic!("{} {}", i, e),
+                Err(e) => panic!("{i} {e}"),
             }
         }
 
@@ -558,20 +568,16 @@ mod tests {
         for (i, f) in unwritable_list.iter().enumerate() {
             match super::is_dir_writable(f) {
                 Ok(v) => {
-                    if v {
-                        panic!("{} {}", i, v);
-                    }
+                    assert!(!v, "{i} {v}");
                 }
-                Err(e) => panic!("{} {}", i, e),
+                Err(e) => panic!("{i} {e}"),
             }
         }
 
         let invalid_list = ["/proc/vmstat", "516e7cb4-6ecf-11d6-8ff8-00022d09712b"];
         for (i, f) in invalid_list.iter().enumerate() {
             if let Ok(v) = super::is_dir_writable(f) {
-                if v {
-                    panic!("{} {}", i, v);
-                }
+                assert!(!v, "{i} {v}");
             }
         }
     }
@@ -579,7 +585,7 @@ mod tests {
     #[test]
     fn test_remove_dup_string() {
         let uniq_ll = vec![
-            vec!["".to_string()],
+            vec![String::new()],
             vec!["/path/to/xxx".to_string()],
             vec!["/path/to/xxx".to_string(), "/path/to/yyy".to_string()],
             vec!["xxx1".to_string(), "xxx2".to_string()],
@@ -594,7 +600,7 @@ mod tests {
                 "xxx1".to_string(),
                 "xxx2".to_string(),
                 "xxx3".to_string(),
-                "".to_string(),
+                String::new(),
             ],
             vec![
                 "a".to_string(),
@@ -605,28 +611,22 @@ mod tests {
                 "f".to_string(),
             ],
         ];
-        for l in uniq_ll.iter() {
+        for l in &uniq_ll {
             let x = super::remove_dup_string(l.as_slice());
             for (i, a) in x.iter().enumerate() {
                 for (j, b) in x.iter().enumerate() {
-                    if i != j && a == b {
-                        panic!("{:?}: {} {} == {} {}", l, i, a, j, b);
-                    }
+                    assert!(!(i != j && a == b), "{l:?}: {i} {a} == {j} {b}");
                 }
             }
-            if l.len() != x.len() {
-                panic!("{:?}: {} != {}", l, l.len(), x.len());
-            }
+            assert!(l.len() == x.len(), "{:?}: {} != {}", l, l.len(), x.len());
             for i in 0..x.len() {
-                if x[i] != l[i].as_str() {
-                    panic!("{:?}: {} {} != {}", l, i, x[i], l[i]);
-                }
+                assert!(x[i] == l[i].as_str(), "{:?}: {} {} != {}", l, i, x[i], l[i]);
             }
         }
 
         let dup_ll = vec![
-            vec!["".to_string(), "".to_string()],
-            vec!["".to_string(), "".to_string(), "".to_string()],
+            vec![String::new(), String::new()],
+            vec![String::new(), String::new(), String::new()],
             vec!["/path/to/xxx".to_string(), "/path/to/xxx".to_string()],
             vec!["xxx1".to_string(), "xxx2".to_string(), "xxx1".to_string()],
             vec![
@@ -662,30 +662,22 @@ mod tests {
                 "f".to_string(),
             ],
         ];
-        for l in dup_ll.iter() {
+        for l in &dup_ll {
             let x = super::remove_dup_string(l.as_slice());
             for (i, a) in x.iter().enumerate() {
                 for (j, b) in x.iter().enumerate() {
-                    if i != j && a == b {
-                        panic!("{:?}: {} {} == {} {}", l, i, a, j, b);
-                    }
+                    assert!(!(i != j && a == b), "{l:?}: {i} {a} == {j} {b}");
                 }
             }
-            if l.len() <= x.len() {
-                panic!("{:?}: {} <= {}", l, l.len(), x.len());
-            }
+            assert!(l.len() > x.len(), "{:?}: {} <= {}", l, l.len(), x.len());
             let mut v = vec![];
-            for s in x.iter() {
-                v.push(s.to_string());
+            for s in &x {
+                v.push((*s).to_string());
             }
             let xx = super::remove_dup_string(&v);
-            if x.len() != xx.len() {
-                panic!("{:?}: {} != {}", l, x.len(), xx.len());
-            }
+            assert!(x.len() == xx.len(), "{:?}: {} != {}", l, x.len(), xx.len());
             for i in 0..x.len() {
-                if x[i] != xx[i] {
-                    panic!("{:?}: {} {} != {}", l, i, x[i], xx[i]);
-                }
+                assert!(x[i] == xx[i], "{:?}: {} {} != {}", l, i, x[i], xx[i]);
             }
         }
     }
@@ -694,15 +686,11 @@ mod tests {
     fn test_get_random() {
         for i in 1..10000 {
             let x = super::get_random(0..i);
-            if x < 0 || x >= i {
-                panic!("{} {}", i, x);
-            }
+            assert!(!(x < 0 || x >= i), "{i} {x}");
         }
         for i in 1..10000 {
             let x = super::get_random(-i..0);
-            if x < -i || x >= 0 {
-                panic!("{} {}", i, x);
-            }
+            assert!(!(x < -i || x >= 0), "{i} {x}");
         }
     }
 

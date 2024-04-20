@@ -5,10 +5,34 @@ use crate::stat;
 use crate::util;
 use crate::Opt;
 
-pub(crate) const PATH_ITER_WALK: usize = 0;
-pub(crate) const PATH_ITER_ORDERED: usize = 1;
-pub(crate) const PATH_ITER_REVERSE: usize = 2;
-pub(crate) const PATH_ITER_RANDOM: usize = 3;
+#[derive(Debug)]
+pub(crate) enum PathIter {
+    Walk,
+    Ordered,
+    Reverse,
+    Random,
+}
+
+impl PathIter {
+    pub(crate) fn is_walk(&self) -> bool {
+        matches!(self, PathIter::Walk)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn is_ordered(&self) -> bool {
+        matches!(self, PathIter::Ordered)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn is_reverse(&self) -> bool {
+        matches!(self, PathIter::Reverse)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn is_random(&self) -> bool {
+        matches!(self, PathIter::Random)
+    }
+}
 
 #[derive(Debug, Default)]
 pub(crate) struct Thread {
@@ -22,8 +46,8 @@ pub(crate) struct Thread {
 }
 
 impl Thread {
-    fn newread(gid: usize, bufsiz: usize) -> Thread {
-        Thread {
+    fn newread(gid: usize, bufsiz: usize) -> Self {
+        Self {
             gid,
             dir: dir::ThreadDir::newread(bufsiz),
             stat: stat::ThreadStat::newread(),
@@ -31,8 +55,8 @@ impl Thread {
         }
     }
 
-    fn newwrite(gid: usize, bufsiz: usize) -> Thread {
-        Thread {
+    fn newwrite(gid: usize, bufsiz: usize) -> Self {
+        Self {
             gid,
             dir: dir::ThreadDir::newwrite(bufsiz),
             stat: stat::ThreadStat::newwrite(),
@@ -66,17 +90,17 @@ impl Thread {
 }
 
 fn setup_flist_impl(input: &[String], opt: &Opt) -> std::io::Result<Vec<Vec<String>>> {
-    let mut fls: Vec<Vec<String>> = vec![];
+    let mut fls = vec![];
     for _ in 0..input.len() {
         fls.push(vec![]);
     }
 
     if !opt.flist_file.is_empty() {
         // load flist from flist file
-        assert!(opt.path_iter != PATH_ITER_WALK);
+        assert!(!opt.path_iter.is_walk());
         println!("flist_file {}", opt.flist_file);
         let l = flist::load_flist_file(&opt.flist_file)?;
-        for s in l.iter() {
+        for s in &l {
             let mut found = false;
             for (i, f) in input.iter().enumerate() {
                 if s.starts_with(f) {
@@ -86,7 +110,7 @@ fn setup_flist_impl(input: &[String], opt: &Opt) -> std::io::Result<Vec<Vec<Stri
                 }
             }
             if !found {
-                println!("{} has no prefix in {:?}", s, input);
+                println!("{s} has no prefix in {input:?}");
                 return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput));
             }
         }
@@ -113,9 +137,9 @@ fn setup_flist_impl(input: &[String], opt: &Opt) -> std::io::Result<Vec<Vec<Stri
 
 fn setup_flist(input: &[String], opt: &Opt) -> std::io::Result<Vec<Vec<String>>> {
     // setup flist for non-walk iterations
-    if opt.path_iter == PATH_ITER_WALK {
-        for f in input.iter() {
-            println!("Walk {}", f);
+    if opt.path_iter.is_walk() {
+        for f in input {
+            println!("Walk {f}");
         }
         Ok(vec![])
     } else {
@@ -139,9 +163,9 @@ fn debug_print_complete(repeat: isize, thr: &Thread, opt: &Opt) {
         repeat,
         dir::is_write_done(thr, opt)
     );
-    log::info!("{}", msg);
+    log::info!("{msg}");
     if opt.debug {
-        println!("{}", msg);
+        println!("{msg}");
     }
 }
 
@@ -191,10 +215,10 @@ fn monitor_handler(
         if timer.elapsed() {
             let label = stringify!([monitor]);
             if ready {
-                log::info!("{} ready", label);
+                log::info!("{label} ready");
                 stat::print_stat(&tsv);
             } else {
-                log::info!("{} not ready", label);
+                log::info!("{label} not ready");
             }
             timer.reset();
         }
@@ -230,14 +254,14 @@ fn worker_handler(
     // send initial stats
     thr.send_stat()?;
 
-    // Note that PATH_ITER_WALK can fall into infinite loop when used
+    // Note that PathIter::Walk can fall into infinite loop when used
     // in conjunction with writer or symlink.
     loop {
         // either walk or select from input path
-        if opt.path_iter == PATH_ITER_WALK {
+        if opt.path_iter.is_walk() {
             for entry in walkdir::WalkDir::new(input_path)
                 .into_iter()
-                .filter_map(|e| e.ok())
+                .filter_map(std::result::Result::ok)
             {
                 let f = util::parse_walkdir_entry(&entry)?;
                 assert!(f.starts_with(input_path));
@@ -264,10 +288,10 @@ fn worker_handler(
             let fl = fl.unwrap();
             for i in 0..fl.len() {
                 let idx = match opt.path_iter {
-                    PATH_ITER_ORDERED => i,
-                    PATH_ITER_REVERSE => fl.len() - 1 - i,
-                    PATH_ITER_RANDOM => util::get_random(0..fl.len()),
-                    _ => {
+                    PathIter::Ordered => i,
+                    PathIter::Reverse => fl.len() - 1 - i,
+                    PathIter::Random => util::get_random(0..fl.len()),
+                    PathIter::Walk => {
                         return Err(Box::new(std::io::Error::from(
                             std::io::ErrorKind::InvalidInput,
                         )))
@@ -329,7 +353,7 @@ pub(crate) fn dispatch_worker(
     input: &[String],
     opt: &Opt,
 ) -> std::io::Result<(usize, usize, usize, usize, Vec<stat::ThreadStat>)> {
-    for f in input.iter() {
+    for f in input {
         assert!(util::is_abspath(f));
     }
     assert!(opt.time_minute == 0);
@@ -341,7 +365,7 @@ pub(crate) fn dispatch_worker(
     }
 
     // initialize dir
-    let dir = dir::Dir::new(opt.random_write_data, &opt.write_paths_type);
+    let dir = dir::Dir::new(opt.random_write_data);
 
     // initialize thread structure
     let mut thrv = vec![];
@@ -356,7 +380,7 @@ pub(crate) fn dispatch_worker(
 
     // setup flist
     let fls = setup_flist(input, opt)?;
-    if opt.path_iter == PATH_ITER_WALK {
+    if opt.path_iter.is_walk() {
         assert!(fls.is_empty());
     } else {
         assert!(!fls.is_empty());
@@ -368,7 +392,7 @@ pub(crate) fn dispatch_worker(
     let mut rxc = None;
     if use_monitor {
         let l = std::sync::mpsc::channel::<(usize, stat::ThreadStat)>();
-        for thr in thrv.iter_mut() {
+        for thr in &mut thrv {
             thr.txc = Some(l.0.clone());
         }
         rxc = Some(l.1);
@@ -381,12 +405,12 @@ pub(crate) fn dispatch_worker(
                 let tid = std::thread::current().id();
                 log::info!("{:?} monitor start", tid);
                 if let Err(e) = monitor_handler(n, rxc, opt) {
-                    log::info!("{:?} {}", tid, e);
-                    println!("{}", e);
+                    log::info!("{tid:?} {e}");
+                    println!("{e}");
                 }
             });
         }
-        for thr in thrv.iter_mut() {
+        for thr in &mut thrv {
             s.spawn(|| {
                 let tid = std::thread::current().id();
                 log::info!("{:?} #{} start", tid, thr.gid);
@@ -400,7 +424,7 @@ pub(crate) fn dispatch_worker(
                 if let Err(e) = worker_handler(input_path, fl, thr, &dir, opt) {
                     thr.num_error += 1;
                     log::info!("{:?} #{} {}", tid, thr.gid, e);
-                    println!("{}", e);
+                    println!("{e}");
                 }
                 thr.stat.set_time_end();
             });
@@ -411,7 +435,7 @@ pub(crate) fn dispatch_worker(
     let mut num_complete = 0;
     let mut num_interrupted = 0;
     let mut num_error = 0;
-    for thr in thrv.iter_mut() {
+    for thr in &mut thrv {
         num_complete += thr.num_complete;
         num_interrupted += thr.num_interrupted;
         num_error += thr.num_error;
@@ -420,7 +444,7 @@ pub(crate) fn dispatch_worker(
 
     let mut tdv = vec![];
     let mut tsv = vec![];
-    for thr in thrv.iter_mut() {
+    for thr in &mut thrv {
         tdv.push(&thr.dir);
         tsv.push(thr.stat.clone());
     }
@@ -431,4 +455,15 @@ pub(crate) fn dispatch_worker(
         dir::cleanup_write_paths(tdv.as_slice(), opt)?,
         tsv,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_get_path_iter_is_xxx() {
+        assert!(super::PathIter::Walk.is_walk());
+        assert!(super::PathIter::Ordered.is_ordered());
+        assert!(super::PathIter::Reverse.is_reverse());
+        assert!(super::PathIter::Random.is_random());
+    }
 }
