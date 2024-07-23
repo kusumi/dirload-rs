@@ -4,7 +4,9 @@ mod stat;
 mod util;
 mod worker;
 
-const VERSION: [i32; 3] = [0, 1, 4];
+const VERSION: [i32; 3] = [0, 1, 5];
+
+const DIRLOAD_HOME: &str = "DIRLOAD_HOME";
 
 #[derive(Debug)]
 struct Opt {
@@ -92,20 +94,31 @@ fn usage(progname: &str, opts: &getopts::Options) {
     );
 }
 
-fn init_log(f: &str) {
+fn init_file_logger(progname: &str) -> Result<(), log::SetLoggerError> {
+    let home = util::get_home_path();
+    let name = format!(".{}.log", util::get_basename(progname).unwrap());
+    let f = match std::env::var(DIRLOAD_HOME) {
+        Ok(v) => {
+            if util::is_dir(&v) {
+                util::join_path(&v, &name)
+            } else {
+                println!("{DIRLOAD_HOME} not a directory, using {home} instead");
+                util::join_path(&home, &name)
+            }
+        }
+        Err(_) => util::join_path(&home, &name),
+    };
     simplelog::CombinedLogger::init(vec![simplelog::WriteLogger::new(
-        simplelog::LevelFilter::Info,
+        simplelog::LevelFilter::Trace,
         simplelog::Config::default(),
         std::fs::File::create(f).unwrap(),
     )])
-    .unwrap();
-    assert!(std::path::Path::new(&f).is_file());
 }
 
 static mut INTERRUPTED: bool = false;
 
 extern "C" fn sigint_handler(_: libc::c_int) {
-    log::info!("{}: SIGINT", stringify!(sigint_handler));
+    log::info!("{}: SIGINT", util::function!());
     unsafe {
         INTERRUPTED = true;
     }
@@ -117,7 +130,7 @@ fn is_interrupted() -> bool {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let progname = args[0].clone();
+    let progname = &args[0];
 
     let mut opts = getopts::Options::new();
     opts.optopt("", "num_set", "Number of sets to run (default 1)", "<uint>");
@@ -238,74 +251,129 @@ fn main() {
     opts.optflag("v", "version", "Print version and exit");
     opts.optflag("h", "help", "Print usage and exit");
 
-    let matches = opts.parse(&args[1..]).unwrap();
+    let matches = match opts.parse(&args[1..]) {
+        Ok(v) => v,
+        Err(e) => {
+            println!("{e}");
+            usage(progname, &opts);
+            std::process::exit(1);
+        }
+    };
     if matches.opt_present("v") {
         print_version();
         std::process::exit(1);
     }
     if matches.opt_present("h") {
-        usage(&progname, &opts);
+        usage(progname, &opts);
         std::process::exit(1);
     }
 
     let mut opt = Opt {
         ..Default::default()
     };
-    if matches.opt_present("num_set") {
-        opt.num_set = matches.opt_str("num_set").unwrap().parse().unwrap();
+    if let Some(v) = matches.opt_str("num_set") {
+        opt.num_set = match v.parse() {
+            Ok(v) => v,
+            Err(e) => {
+                println!("{v}: {e}");
+                std::process::exit(1);
+            }
+        };
     }
-    if matches.opt_present("num_reader") {
-        opt.num_reader = matches.opt_str("num_reader").unwrap().parse().unwrap();
+    if let Some(v) = matches.opt_str("num_reader") {
+        opt.num_reader = match v.parse() {
+            Ok(v) => v,
+            Err(e) => {
+                println!("{v}: {e}");
+                std::process::exit(1);
+            }
+        };
     }
-    if matches.opt_present("num_writer") {
-        opt.num_writer = matches.opt_str("num_writer").unwrap().parse().unwrap();
+    if let Some(v) = matches.opt_str("num_writer") {
+        opt.num_writer = match v.parse() {
+            Ok(v) => v,
+            Err(e) => {
+                println!("{v}: {e}");
+                std::process::exit(1);
+            }
+        };
     }
-    if matches.opt_present("num_repeat") {
-        opt.num_repeat = matches.opt_str("num_repeat").unwrap().parse().unwrap();
+    if let Some(v) = matches.opt_str("num_repeat") {
+        opt.num_repeat = match v.parse() {
+            Ok(v) => v,
+            Err(e) => {
+                println!("{v}: {e}");
+                std::process::exit(1);
+            }
+        };
         if opt.num_repeat == 0 || opt.num_repeat < -1 {
             opt.num_repeat = -1;
         }
     }
-    if matches.opt_present("time_minute") {
-        opt.time_minute = matches.opt_str("time_minute").unwrap().parse().unwrap();
+    if let Some(v) = matches.opt_str("time_minute") {
+        opt.time_minute = match v.parse() {
+            Ok(v) => v,
+            Err(e) => {
+                println!("{v}: {e}");
+                std::process::exit(1);
+            }
+        };
     }
-    if matches.opt_present("time_second") {
-        opt.time_second = matches.opt_str("time_second").unwrap().parse().unwrap();
+    if let Some(v) = matches.opt_str("time_second") {
+        opt.time_second = match v.parse() {
+            Ok(v) => v,
+            Err(e) => {
+                println!("{v}: {e}");
+                std::process::exit(1);
+            }
+        };
     }
     opt.time_second += opt.time_minute * 60;
     opt.time_minute = 0;
-    if matches.opt_present("monitor_interval_minute") {
-        opt.monitor_int_minute = matches
-            .opt_str("monitor_interval_minute")
-            .unwrap()
-            .parse()
-            .unwrap();
+    if let Some(v) = matches.opt_str("monitor_interval_minute") {
+        opt.monitor_int_minute = match v.parse() {
+            Ok(v) => v,
+            Err(e) => {
+                println!("{v}: {e}");
+                std::process::exit(1);
+            }
+        };
     }
-    if matches.opt_present("monitor_interval_second") {
-        opt.monitor_int_second = matches
-            .opt_str("monitor_interval_second")
-            .unwrap()
-            .parse()
-            .unwrap();
+    if let Some(v) = matches.opt_str("monitor_interval_second") {
+        opt.monitor_int_second = match v.parse() {
+            Ok(v) => v,
+            Err(e) => {
+                println!("{v}: {e}");
+                std::process::exit(1);
+            }
+        };
     }
     opt.monitor_int_second += opt.monitor_int_minute * 60;
     opt.monitor_int_minute = 0;
     opt.stat_only = matches.opt_present("stat_only");
     opt.ignore_dot = matches.opt_present("ignore_dot");
     opt.follow_symlink = matches.opt_present("follow_symlink");
-    if matches.opt_present("read_buffer_size") {
-        opt.read_buffer_size = matches
-            .opt_str("read_buffer_size")
-            .unwrap()
-            .parse()
-            .unwrap();
+    if let Some(v) = matches.opt_str("read_buffer_size") {
+        opt.read_buffer_size = match v.parse() {
+            Ok(v) => v,
+            Err(e) => {
+                println!("{v}: {e}");
+                std::process::exit(1);
+            }
+        };
         if opt.read_buffer_size > dir::MAX_BUFFER_SIZE {
             println!("Invalid read buffer size {}", opt.read_buffer_size);
             std::process::exit(1);
         }
     }
-    if matches.opt_present("read_size") {
-        opt.read_size = matches.opt_str("read_size").unwrap().parse().unwrap();
+    if let Some(v) = matches.opt_str("read_size") {
+        opt.read_size = match v.parse() {
+            Ok(v) => v,
+            Err(e) => {
+                println!("{v}: {e}");
+                std::process::exit(1);
+            }
+        };
         if opt.read_size < -1 {
             opt.read_size = -1;
         } else if opt.read_size > dir::MAX_BUFFER_SIZE.try_into().unwrap() {
@@ -313,19 +381,27 @@ fn main() {
             std::process::exit(1);
         }
     }
-    if matches.opt_present("write_buffer_size") {
-        opt.write_buffer_size = matches
-            .opt_str("write_buffer_size")
-            .unwrap()
-            .parse()
-            .unwrap();
+    if let Some(v) = matches.opt_str("write_buffer_size") {
+        opt.write_buffer_size = match v.parse() {
+            Ok(v) => v,
+            Err(e) => {
+                println!("{v}: {e}");
+                std::process::exit(1);
+            }
+        };
         if opt.write_buffer_size > dir::MAX_BUFFER_SIZE {
             println!("Invalid write buffer size {}", opt.write_buffer_size);
             std::process::exit(1);
         }
     }
-    if matches.opt_present("write_size") {
-        opt.write_size = matches.opt_str("write_size").unwrap().parse().unwrap();
+    if let Some(v) = matches.opt_str("write_size") {
+        opt.write_size = match v.parse() {
+            Ok(v) => v,
+            Err(e) => {
+                println!("{v}: {e}");
+                std::process::exit(1);
+            }
+        };
         if opt.write_size < -1 {
             opt.write_size = -1;
         } else if opt.write_size > dir::MAX_BUFFER_SIZE.try_into().unwrap() {
@@ -334,8 +410,14 @@ fn main() {
         }
     }
     opt.random_write_data = matches.opt_present("random_write_data");
-    if matches.opt_present("num_write_paths") {
-        opt.num_write_paths = matches.opt_str("num_write_paths").unwrap().parse().unwrap();
+    if let Some(v) = matches.opt_str("num_write_paths") {
+        opt.num_write_paths = match v.parse() {
+            Ok(v) => v,
+            Err(e) => {
+                println!("{v}: {e}");
+                std::process::exit(1);
+            }
+        };
         if opt.num_write_paths < -1 {
             opt.num_write_paths = -1;
         }
@@ -345,8 +427,14 @@ fn main() {
     opt.dirsync_write_paths = matches.opt_present("dirsync_write_paths");
     opt.keep_write_paths = matches.opt_present("keep_write_paths");
     opt.clean_write_paths = matches.opt_present("clean_write_paths");
-    if matches.opt_present("write_paths_base") {
-        opt.write_paths_base = matches.opt_str("write_paths_base").unwrap();
+    if let Some(v) = matches.opt_str("write_paths_base") {
+        opt.write_paths_base = match v.parse() {
+            Ok(v) => v,
+            Err(e) => {
+                println!("{v}: {e}");
+                std::process::exit(1);
+            }
+        };
         if opt.write_paths_base.is_empty() {
             println!("Empty write paths base");
             std::process::exit(1);
@@ -356,14 +444,13 @@ fn main() {
             println!("Using base name {} for write paths", opt.write_paths_base);
         }
     }
-    if matches.opt_present("write_paths_type") {
-        let s = matches.opt_str("write_paths_type").unwrap();
-        if s.is_empty() {
+    if let Some(v) = matches.opt_str("write_paths_type") {
+        if v.is_empty() {
             println!("Empty write paths type");
             std::process::exit(1);
         }
         opt.write_paths_type.clear();
-        for x in s.chars() {
+        for x in v.chars() {
             opt.write_paths_type.push(match x {
                 'd' => dir::WritePathsType::Dir,
                 'r' => dir::WritePathsType::Reg,
@@ -376,8 +463,8 @@ fn main() {
             });
         }
     }
-    if matches.opt_present("path_iter") {
-        opt.path_iter = match matches.opt_str("path_iter").unwrap().as_str() {
+    if let Some(v) = matches.opt_str("path_iter") {
+        opt.path_iter = match v.as_str() {
             "walk" => worker::PathIter::Walk,
             "ordered" => worker::PathIter::Ordered,
             "reverse" => worker::PathIter::Reverse,
@@ -388,8 +475,8 @@ fn main() {
             }
         };
     }
-    if matches.opt_present("flist_file") {
-        opt.flist_file = matches.opt_str("flist_file").unwrap();
+    if let Some(v) = matches.opt_str("flist_file") {
+        opt.flist_file = v;
     }
     // using flist file means not walking input directories
     if !opt.flist_file.is_empty() && opt.path_iter.is_walk() {
@@ -414,17 +501,15 @@ fn main() {
     }
 
     if matches.free.is_empty() {
-        usage(&progname, &opts);
+        usage(progname, &opts);
         std::process::exit(1);
     }
 
-    let home = dirs::home_dir()
-        .unwrap()
-        .into_os_string()
-        .into_string()
-        .unwrap();
     if opt.debug {
-        init_log(&util::join_path(&home, ".dirload.log"));
+        if let Err(e) = init_file_logger(progname) {
+            println!("{e}");
+            std::process::exit(1);
+        }
         log::info!("{opt:?}");
     }
 

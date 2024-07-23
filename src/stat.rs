@@ -271,26 +271,26 @@ mod tests {
     fn test_newread() {
         let ts = super::ThreadStat::newread();
         assert!(ts.is_reader, "{}", ts.is_reader);
-        assert!(ts.input_path == *"", "{}", ts.input_path);
-        assert!(ts.num_repeat == 0, "{}", ts.num_repeat);
-        assert!(ts.num_stat == 0, "{}", ts.num_stat);
-        assert!(ts.num_read == 0, "{}", ts.num_read);
-        assert!(ts.num_read_bytes == 0, "{}", ts.num_read_bytes);
-        assert!(ts.num_write == 0, "{}", ts.num_write);
-        assert!(ts.num_write_bytes == 0, "{}", ts.num_write_bytes);
+        assert_eq!(ts.input_path, *"", "{}", ts.input_path);
+        assert_eq!(ts.num_repeat, 0, "{}", ts.num_repeat);
+        assert_eq!(ts.num_stat, 0, "{}", ts.num_stat);
+        assert_eq!(ts.num_read, 0, "{}", ts.num_read);
+        assert_eq!(ts.num_read_bytes, 0, "{}", ts.num_read_bytes);
+        assert_eq!(ts.num_write, 0, "{}", ts.num_write);
+        assert_eq!(ts.num_write_bytes, 0, "{}", ts.num_write_bytes);
     }
 
     #[test]
     fn test_newwrite() {
         let ts = super::ThreadStat::newwrite();
         assert!(!ts.is_reader, "{}", ts.is_reader);
-        assert!(ts.input_path == *"", "{}", ts.input_path);
-        assert!(ts.num_repeat == 0, "{}", ts.num_repeat);
-        assert!(ts.num_stat == 0, "{}", ts.num_stat);
-        assert!(ts.num_read == 0, "{}", ts.num_read);
-        assert!(ts.num_read_bytes == 0, "{}", ts.num_read_bytes);
-        assert!(ts.num_write == 0, "{}", ts.num_write);
-        assert!(ts.num_write_bytes == 0, "{}", ts.num_write_bytes);
+        assert_eq!(ts.input_path, *"", "{}", ts.input_path);
+        assert_eq!(ts.num_repeat, 0, "{}", ts.num_repeat);
+        assert_eq!(ts.num_stat, 0, "{}", ts.num_stat);
+        assert_eq!(ts.num_read, 0, "{}", ts.num_read);
+        assert_eq!(ts.num_read_bytes, 0, "{}", ts.num_read_bytes);
+        assert_eq!(ts.num_write, 0, "{}", ts.num_write);
+        assert_eq!(ts.num_write_bytes, 0, "{}", ts.num_write_bytes);
     }
 
     #[test]
@@ -317,9 +317,9 @@ mod tests {
             Err(e) => panic!("{e}"),
         };
         assert!(!d.is_zero(), "{:?} {:?}", ts.time_begin, ts.time_end);
-        assert!(d.as_millis() != 0, "{:?} {:?}", ts.time_begin, ts.time_end);
-        assert!(d.as_micros() != 0, "{:?} {:?}", ts.time_begin, ts.time_end);
-        assert!(d.as_nanos() != 0, "{:?} {:?}", ts.time_begin, ts.time_end);
+        assert_ne!(d.as_millis(), 0, "{:?} {:?}", ts.time_begin, ts.time_end);
+        assert_ne!(d.as_micros(), 0, "{:?} {:?}", ts.time_begin, ts.time_end);
+        assert_ne!(d.as_nanos(), 0, "{:?} {:?}", ts.time_begin, ts.time_end);
 
         if let Ok(v) = ts.time_begin.duration_since(ts.time_end) {
             panic!("{v:?}");
@@ -330,27 +330,27 @@ mod tests {
     fn test_inc_num_repeat() {
         let mut ts = super::ThreadStat::newread();
         ts.inc_num_repeat();
-        assert!(ts.num_repeat == 1, "{}", ts.num_repeat);
+        assert_eq!(ts.num_repeat, 1, "{}", ts.num_repeat);
         ts.inc_num_repeat();
-        assert!(ts.num_repeat == 2, "{}", ts.num_repeat);
+        assert_eq!(ts.num_repeat, 2, "{}", ts.num_repeat);
     }
 
     #[test]
     fn test_inc_num_stat() {
         let mut ts = super::ThreadStat::newread();
         ts.inc_num_stat();
-        assert!(ts.num_stat == 1, "{}", ts.num_stat);
+        assert_eq!(ts.num_stat, 1, "{}", ts.num_stat);
         ts.inc_num_stat();
-        assert!(ts.num_stat == 2, "{}", ts.num_stat);
+        assert_eq!(ts.num_stat, 2, "{}", ts.num_stat);
     }
 
     #[test]
     fn test_inc_num_read() {
         let mut ts = super::ThreadStat::newread();
         ts.inc_num_read();
-        assert!(ts.num_read == 1, "{}", ts.num_read);
+        assert_eq!(ts.num_read, 1, "{}", ts.num_read);
         ts.inc_num_read();
-        assert!(ts.num_read == 2, "{}", ts.num_read);
+        assert_eq!(ts.num_read, 2, "{}", ts.num_read);
     }
 
     #[test]
@@ -358,20 +358,20 @@ mod tests {
         let mut ts = super::ThreadStat::newread();
         let siz = 1234;
         ts.add_num_read_bytes(siz);
-        assert!(ts.num_read_bytes == siz, "{}", ts.num_read);
+        assert_eq!(ts.num_read_bytes, siz, "{}", ts.num_read);
         ts.add_num_read_bytes(siz);
-        assert!(ts.num_read_bytes == siz * 2, "{}", ts.num_read);
+        assert_eq!(ts.num_read_bytes, siz * 2, "{}", ts.num_read);
         ts.add_num_read_bytes(0);
-        assert!(ts.num_read_bytes == siz * 2, "{}", ts.num_read);
+        assert_eq!(ts.num_read_bytes, siz * 2, "{}", ts.num_read);
     }
 
     #[test]
     fn test_inc_num_write() {
         let mut ts = super::ThreadStat::newread();
         ts.inc_num_write();
-        assert!(ts.num_write == 1, "{}", ts.num_write);
+        assert_eq!(ts.num_write, 1, "{}", ts.num_write);
         ts.inc_num_write();
-        assert!(ts.num_write == 2, "{}", ts.num_write);
+        assert_eq!(ts.num_write, 2, "{}", ts.num_write);
     }
 
     #[test]
@@ -379,10 +379,10 @@ mod tests {
         let mut ts = super::ThreadStat::newread();
         let siz = 1234;
         ts.add_num_write_bytes(siz);
-        assert!(ts.num_write_bytes == siz, "{}", ts.num_write);
+        assert_eq!(ts.num_write_bytes, siz, "{}", ts.num_write);
         ts.add_num_write_bytes(siz);
-        assert!(ts.num_write_bytes == siz * 2, "{}", ts.num_write);
+        assert_eq!(ts.num_write_bytes, siz * 2, "{}", ts.num_write);
         ts.add_num_write_bytes(0);
-        assert!(ts.num_write_bytes == siz * 2, "{}", ts.num_write);
+        assert_eq!(ts.num_write_bytes, siz * 2, "{}", ts.num_write);
     }
 }

@@ -1,4 +1,4 @@
-dirload-rs ([v0.1.4](https://github.com/kusumi/dirload-rs/releases/tag/v0.1.4))
+dirload-rs ([v0.1.5](https://github.com/kusumi/dirload-rs/releases/tag/v0.1.5))
 ========
 
 ## About

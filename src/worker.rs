@@ -144,7 +144,7 @@ fn setup_flist(input: &[String], opt: &Opt) -> std::io::Result<Vec<Vec<String>>>
         Ok(vec![])
     } else {
         let fls = setup_flist_impl(input, opt)?;
-        assert!(input.len() == fls.len());
+        assert_eq!(input.len(), fls.len());
         Ok(fls)
     }
 }
@@ -244,9 +244,9 @@ fn worker_handler(
     let mut repeat = 0;
 
     // assert thr
-    assert!(thr.num_complete == 0);
-    assert!(thr.num_interrupted == 0);
-    assert!(thr.num_error == 0);
+    assert_eq!(thr.num_complete, 0);
+    assert_eq!(thr.num_interrupted, 0);
+    assert_eq!(thr.num_error, 0);
 
     // start loop
     thr.stat.set_input_path(input_path);
@@ -356,8 +356,8 @@ pub(crate) fn dispatch_worker(
     for f in input {
         assert!(util::is_abspath(f));
     }
-    assert!(opt.time_minute == 0);
-    assert!(opt.monitor_int_minute == 0);
+    assert_eq!(opt.time_minute, 0);
+    assert_eq!(opt.monitor_int_minute, 0);
 
     // number of readers and writers are 0 by default
     if opt.num_reader == 0 && opt.num_writer == 0 {
@@ -376,7 +376,7 @@ pub(crate) fn dispatch_worker(
             thrv.push(Thread::newwrite(i, opt.write_buffer_size));
         }
     }
-    assert!(thrv.len() == opt.num_reader + opt.num_writer);
+    assert_eq!(thrv.len(), opt.num_reader + opt.num_writer);
 
     // setup flist
     let fls = setup_flist(input, opt)?;
@@ -440,7 +440,10 @@ pub(crate) fn dispatch_worker(
         num_interrupted += thr.num_interrupted;
         num_error += thr.num_error;
     }
-    assert!(num_complete + num_interrupted + num_error == opt.num_reader + opt.num_writer);
+    assert_eq!(
+        num_complete + num_interrupted + num_error,
+        opt.num_reader + opt.num_writer
+    );
 
     let mut tdv = vec![];
     let mut tsv = vec![];

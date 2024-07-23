@@ -193,14 +193,14 @@ fn read_file(f: &str, thr: &mut worker::Thread, opt: &Opt) -> std::io::Result<()
     if resid == 0 {
         resid = isize::try_from(util::get_random(0..b.len())).unwrap() + 1;
         assert!(resid > 0);
-        assert!(resid <= isize::try_from(b.len()).unwrap());
+        assert!(resid <= b.len().try_into().unwrap());
     }
     assert!(resid == -1 || resid > 0);
 
     loop {
         // cut slice size if > positive residual
-        if resid > 0 && b.len() > usize::try_from(resid).unwrap() {
-            b = &mut b[..usize::try_from(resid).unwrap()];
+        if resid > 0 && b.len() > resid.try_into().unwrap() {
+            b = &mut b[..resid.try_into().unwrap()];
         }
 
         let siz = fp.read(b)?;
@@ -215,7 +215,7 @@ fn read_file(f: &str, thr: &mut worker::Thread, opt: &Opt) -> std::io::Result<()
             resid -= isize::try_from(siz).unwrap();
             if resid >= 0 {
                 if opt.debug {
-                    assert!(resid == 0);
+                    assert_eq!(resid, 0);
                 }
                 break;
             }
@@ -290,10 +290,7 @@ fn write_file(
     }
 
     // open the write path and start writing
-    let mut fp = std::fs::OpenOptions::new()
-        .write(true)
-        .append(true)
-        .open(newf)?;
+    let mut fp = std::fs::OpenOptions::new().append(true).open(newf)?;
     let mut b: &mut [u8] = &mut thr.dir.write_buffer;
     let mut resid = opt.write_size; // negative resid means no write
     match resid {
@@ -304,7 +301,7 @@ fn write_file(
         0 => {
             resid = isize::try_from(util::get_random(0..b.len())).unwrap() + 1;
             assert!(resid > 0);
-            assert!(resid <= isize::try_from(b.len()).unwrap());
+            assert!(resid <= b.len().try_into().unwrap());
         }
         _ => (),
     }
@@ -316,8 +313,8 @@ fn write_file(
     } else {
         loop {
             // cut slice size if > residual
-            if resid > 0 && b.len() > usize::try_from(resid).unwrap() {
-                b = &mut b[..usize::try_from(resid).unwrap()];
+            if resid > 0 && b.len() > resid.try_into().unwrap() {
+                b = &mut b[..resid.try_into().unwrap()];
             }
             if opt.random_write_data {
                 let i = util::get_random(0..dir.random_write_data.len() / 2);
@@ -332,7 +329,7 @@ fn write_file(
             resid -= isize::try_from(siz).unwrap();
             if resid <= 0 {
                 if opt.debug {
-                    assert!(resid == 0);
+                    assert_eq!(resid, 0);
                 }
                 break;
             }
@@ -376,7 +373,7 @@ pub(crate) fn is_write_done(thr: &worker::Thread, opt: &Opt) -> bool {
     if !thr.is_writer(opt) || opt.num_write_paths <= 0 {
         false
     } else {
-        thr.dir.write_paths.len() >= usize::try_from(opt.num_write_paths).unwrap()
+        thr.dir.write_paths.len() >= opt.num_write_paths.try_into().unwrap()
     }
 }
 
