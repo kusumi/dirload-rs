@@ -68,8 +68,8 @@ impl ThreadStat {
         self.time_end = std::time::SystemTime::now();
     }
 
-    pub(crate) fn time_elapsed(&self) -> u64 {
-        self.time_begin.elapsed().unwrap().as_secs()
+    pub(crate) fn time_elapsed(&self) -> std::time::Duration {
+        self.time_begin.elapsed().unwrap()
     }
 
     pub(crate) fn inc_num_repeat(&mut self) {
@@ -153,7 +153,6 @@ pub(crate) fn print_stat(tsv: &Vec<ThreadStat>) {
     }
 
     // sec
-    let mut width_sec = "sec".len();
     let mut num_sec = vec![0f64; tsv.len()];
     for (i, t) in num_sec.iter_mut().enumerate() {
         let sec = tsv[i]
@@ -163,6 +162,7 @@ pub(crate) fn print_stat(tsv: &Vec<ThreadStat>) {
             .as_secs_f64();
         *t = f64::trunc(sec * 100.0) / 100.0; // cut decimals
     }
+    let mut width_sec = "sec".len();
     for t in &num_sec {
         let s = t.to_string();
         if s.len() > width_sec {
@@ -171,13 +171,13 @@ pub(crate) fn print_stat(tsv: &Vec<ThreadStat>) {
     }
 
     // MiB/sec
-    let mut width_mibs = "MiB/sec".len();
     let mut num_mibs = vec![0f64; tsv.len()];
     for (i, x) in num_mibs.iter_mut().enumerate() {
         let mib = (tsv[i].num_read_bytes + tsv[i].num_write_bytes) as f64 / f64::from(1 << 20);
         let mibs = mib / num_sec[i];
         *x = f64::trunc(mibs * 100.0) / 100.0; // cut decimals
     }
+    let mut width_mibs = "MiB/sec".len();
     for x in &num_mibs {
         let s = x.to_string();
         if s.len() > width_mibs {
@@ -324,6 +324,22 @@ mod tests {
         if let Ok(v) = ts.time_begin.duration_since(ts.time_end) {
             panic!("{v:?}");
         }
+    }
+
+    #[test]
+    fn test_time_elapsed() {
+        let mut ts = super::ThreadStat::newread();
+        ts.set_time_begin();
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let d = ts.time_elapsed();
+        assert!(d.as_millis() >= 100, "{}", d.as_millis());
+        assert_eq!(d.as_secs(), 0, "{}", d.as_secs());
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let d = ts.time_elapsed();
+        assert!(d.as_millis() >= 200, "{}", d.as_millis());
+        assert_eq!(d.as_secs(), 0, "{}", d.as_secs());
     }
 
     #[test]

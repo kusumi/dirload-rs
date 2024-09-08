@@ -99,8 +99,7 @@ fn setup_flist_impl(input: &[String], opt: &Opt) -> std::io::Result<Vec<Vec<Stri
         // load flist from flist file
         assert!(!opt.path_iter.is_walk());
         println!("flist_file {}", opt.flist_file);
-        let l = flist::load_flist_file(&opt.flist_file)?;
-        for s in &l {
+        for s in &flist::load_flist_file(&opt.flist_file)? {
             let mut found = false;
             for (i, f) in input.iter().enumerate() {
                 if s.starts_with(f) {
@@ -149,7 +148,7 @@ fn setup_flist(input: &[String], opt: &Opt) -> std::io::Result<Vec<Vec<String>>>
     }
 }
 
-fn debug_print_complete(repeat: isize, thr: &Thread, opt: &Opt) {
+fn debug_print_complete(thr: &Thread, repeat: isize, opt: &Opt) {
     let t = if thr.is_reader(opt) {
         "reader"
     } else {
@@ -248,14 +247,11 @@ fn worker_handler(
     assert_eq!(thr.num_interrupted, 0);
     assert_eq!(thr.num_error, 0);
 
-    // start loop
     thr.stat.set_input_path(input_path);
 
     // send initial stats
     thr.send_stat()?;
 
-    // Note that PathIter::Walk can fall into infinite loop when used
-    // in conjunction with writer or symlink.
     loop {
         // either walk or select from input path
         if opt.path_iter.is_walk() {
@@ -274,8 +270,8 @@ fn worker_handler(
                     thr.num_interrupted += 1;
                     break;
                 }
-                if d > 0 && thr.stat.time_elapsed() > d {
-                    debug_print_complete(repeat, thr, opt);
+                if d > 0 && thr.stat.time_elapsed().as_secs() > d {
+                    debug_print_complete(thr, repeat, opt);
                     thr.num_complete += 1;
                     break;
                 }
@@ -308,8 +304,8 @@ fn worker_handler(
                     thr.num_interrupted += 1;
                     break;
                 }
-                if d > 0 && thr.stat.time_elapsed() > d {
-                    debug_print_complete(repeat, thr, opt);
+                if d > 0 && thr.stat.time_elapsed().as_secs() > d {
+                    debug_print_complete(thr, repeat, opt);
                     thr.num_complete += 1;
                     break;
                 }
@@ -343,7 +339,7 @@ fn worker_handler(
         assert!(opt.num_repeat > 0);
         assert!(repeat >= opt.num_repeat);
     }
-    debug_print_complete(repeat, thr, opt);
+    debug_print_complete(thr, repeat, opt);
     thr.num_complete += 1;
 
     Ok(())
@@ -435,7 +431,7 @@ pub(crate) fn dispatch_worker(
     let mut num_complete = 0;
     let mut num_interrupted = 0;
     let mut num_error = 0;
-    for thr in &mut thrv {
+    for thr in &thrv {
         num_complete += thr.num_complete;
         num_interrupted += thr.num_interrupted;
         num_error += thr.num_error;
@@ -447,7 +443,7 @@ pub(crate) fn dispatch_worker(
 
     let mut tdv = vec![];
     let mut tsv = vec![];
-    for thr in &mut thrv {
+    for thr in &thrv {
         tdv.push(&thr.dir);
         tsv.push(thr.stat.clone());
     }

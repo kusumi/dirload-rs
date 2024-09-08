@@ -1,5 +1,6 @@
 use std::io::Read;
 use std::io::Write;
+use std::os::fd::AsRawFd;
 
 use crate::util;
 use crate::worker;
@@ -116,6 +117,7 @@ pub(crate) fn unlink_write_paths(l: &mut Vec<String>, count: isize) -> std::io::
         let t = util::get_raw_file_type(f)?;
         match t {
             util::FileType::Dir | util::FileType::Reg | util::FileType::Symlink => {
+                // don't resolve symlink (test symlink itself, not target)
                 if util::path_exists_or_error(f).is_err() {
                     continue;
                 }
@@ -213,7 +215,7 @@ fn read_file(f: &str, thr: &mut worker::Thread, opt: &Opt) -> std::io::Result<()
         // end if positive residual becomes <= 0
         if resid > 0 {
             resid -= isize::try_from(siz).unwrap();
-            if resid >= 0 {
+            if resid <= 0 {
                 if opt.debug {
                     assert_eq!(resid, 0);
                 }
@@ -261,6 +263,7 @@ fn write_file(
     }
 
     // construct a write path
+    // XXX too long (easily hits ENAMETOOLONG with walk)
     let newb = format!(
         "{}_gid{}_{}_{}",
         get_write_paths_base(opt),
@@ -336,8 +339,8 @@ fn write_file(
         }
     }
 
-    if opt.fsync_write_paths {
-        fp.flush()?;
+    if opt.fsync_write_paths && nix::unistd::fsync(fp.as_raw_fd()).is_err() {
+        return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput));
     }
     Ok(())
 }
@@ -366,7 +369,10 @@ fn create_inode(oldf: &str, newf: &str, t: WritePathsType) -> std::io::Result<()
 }
 
 fn fsync_inode(f: &str) -> std::io::Result<()> {
-    std::fs::File::open(f)?.flush()
+    if nix::unistd::fsync(std::fs::File::open(f)?.as_raw_fd()).is_err() {
+        return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput));
+    }
+    Ok(())
 }
 
 pub(crate) fn is_write_done(thr: &worker::Thread, opt: &Opt) -> bool {
@@ -393,6 +399,7 @@ pub(crate) fn collect_write_paths(input: &[String], opt: &Opt) -> std::io::Resul
             let t = util::get_raw_file_type(x)?;
             match t {
                 util::FileType::Dir | util::FileType::Reg | util::FileType::Symlink => {
+                    // don't resolve symlink (test symlink itself, not target)
                     if util::get_basename(x)?.starts_with(&b) {
                         l.push(x.to_string());
                     }

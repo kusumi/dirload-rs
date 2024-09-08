@@ -281,48 +281,22 @@ impl Timer {
 mod tests {
     #[test]
     fn test_get_abspath() {
-        #[derive(Debug)]
-        struct F {
-            i: &'static str,
-            o: &'static str,
-        }
         let path_list = [
-            F { i: "/", o: "/" },
-            F { i: "/////", o: "/" },
-            F { i: "/..", o: "/" },
-            F { i: "/../", o: "/" },
-            F {
-                i: "/root",
-                o: "/root",
-            },
-            F {
-                i: "/root/",
-                o: "/root",
-            },
-            F {
-                i: "/root/..",
-                o: "/",
-            },
-            F {
-                i: "/root/../dev",
-                o: "/dev",
-            },
-            F {
-                i: "/does/not/exist",
-                o: "/does/not/exist",
-            },
-            F {
-                i: "/does/not/./exist",
-                o: "/does/not/exist",
-            },
-            F {
-                i: "/does/not/../NOT/exist",
-                o: "/does/NOT/exist",
-            },
+            ("/", "/"),
+            ("/////", "/"),
+            ("/..", "/"),
+            ("/../", "/"),
+            ("/root", "/root"),
+            ("/root/", "/root"),
+            ("/root/..", "/"),
+            ("/root/../dev", "/dev"),
+            ("/does/not/exist", "/does/not/exist"),
+            ("/does/not/./exist", "/does/not/exist"),
+            ("/does/not/../NOT/exist", "/does/NOT/exist"),
         ];
         for x in &path_list {
-            match super::get_abspath(x.i) {
-                Ok(v) => assert_eq!(v, x.o),
+            match super::get_abspath(x.0) {
+                Ok(v) => assert_eq!(v, x.1),
                 Err(e) => panic!("{e} {x:?}"),
             }
         }
@@ -330,37 +304,17 @@ mod tests {
 
     #[test]
     fn test_get_dirpath() {
-        #[derive(Debug)]
-        struct F {
-            i: &'static str,
-            o: &'static str,
-        }
         let path_list = [
-            F { i: "/root", o: "/" },
-            F {
-                i: "/root/",
-                o: "/",
-            },
-            F {
-                i: "/root/../dev",
-                o: "/",
-            },
-            F {
-                i: "/does/not/exist",
-                o: "/does/not",
-            },
-            F {
-                i: "/does/not/./exist",
-                o: "/does/not",
-            },
-            F {
-                i: "/does/not/../NOT/exist",
-                o: "/does/NOT",
-            },
+            ("/root", "/"),
+            ("/root/", "/"),
+            ("/root/../dev", "/"),
+            ("/does/not/exist", "/does/not"),
+            ("/does/not/./exist", "/does/not"),
+            ("/does/not/../NOT/exist", "/does/NOT"),
         ];
         for x in &path_list {
-            match super::get_dirpath(x.i) {
-                Ok(v) => assert_eq!(v, x.o),
+            match super::get_dirpath(x.0) {
+                Ok(v) => assert_eq!(v, x.1),
                 Err(e) => panic!("{e} {x:?}"),
             }
         }
@@ -368,40 +322,17 @@ mod tests {
 
     #[test]
     fn test_get_basename() {
-        #[derive(Debug)]
-        struct F {
-            i: &'static str,
-            o: &'static str,
-        }
         let path_list = [
-            F {
-                i: "/root",
-                o: "root",
-            },
-            F {
-                i: "/root/",
-                o: "root",
-            },
-            F {
-                i: "/root/../dev",
-                o: "dev",
-            },
-            F {
-                i: "/does/not/exist",
-                o: "exist",
-            },
-            F {
-                i: "/does/not/./exist",
-                o: "exist",
-            },
-            F {
-                i: "/does/not/../NOT/exist",
-                o: "exist",
-            },
+            ("/root", "root"),
+            ("/root/", "root"),
+            ("/root/../dev", "dev"),
+            ("/does/not/exist", "exist"),
+            ("/does/not/./exist", "exist"),
+            ("/does/not/../NOT/exist", "exist"),
         ];
         for x in &path_list {
-            match super::get_basename(x.i) {
-                Ok(v) => assert_eq!(v, x.o),
+            match super::get_basename(x.0) {
+                Ok(v) => assert_eq!(v, x.1),
                 Err(e) => panic!("{e} {x:?}"),
             }
         }
@@ -409,51 +340,22 @@ mod tests {
 
     #[test]
     fn test_is_abspath() {
-        #[derive(Debug)]
-        struct F {
-            i: &'static str,
-            o: bool,
-        }
         let path_list = [
-            F { i: "/", o: true },
-            F {
-                i: "/////",
-                o: true,
-            },
-            F { i: "/..", o: true },
-            F { i: "/../", o: true },
-            F {
-                i: "/root",
-                o: true,
-            },
-            F {
-                i: "/root/",
-                o: true,
-            },
-            F {
-                i: "/root/..",
-                o: true,
-            },
-            F {
-                i: "/root/../dev",
-                o: true,
-            },
-            F {
-                i: "/does/not/exist",
-                o: true,
-            },
-            F {
-                i: "/does/not/../NOT/exist",
-                o: true,
-            },
-            F { i: "xxx", o: false },
-            F {
-                i: "does/not/exist",
-                o: false,
-            },
+            ("/", true),
+            ("/////", true),
+            ("/..", true),
+            ("/../", true),
+            ("/root", true),
+            ("/root/", true),
+            ("/root/..", true),
+            ("/root/../dev", true),
+            ("/does/not/exist", true),
+            ("/does/not/../NOT/exist", true),
+            ("xxx", false),
+            ("does/not/exist", false),
         ];
         for x in &path_list {
-            assert_eq!(super::is_abspath(x.i), x.o, "{x:?}");
+            assert_eq!(super::is_abspath(x.0), x.1, "{x:?}");
         }
     }
 
@@ -619,7 +521,7 @@ mod tests {
 
     #[test]
     fn test_remove_dup_string() {
-        let uniq_ll = vec![
+        let uniq_ll = [
             vec![String::new()],
             vec!["/path/to/xxx".to_string()],
             vec!["/path/to/xxx".to_string(), "/path/to/yyy".to_string()],
@@ -650,7 +552,7 @@ mod tests {
             let x = super::remove_dup_string(l.as_slice());
             for (i, a) in x.iter().enumerate() {
                 for (j, b) in x.iter().enumerate() {
-                    assert!(!(i != j && a == b), "{l:?}: {i} {a} == {j} {b}");
+                    assert!(!(i != j && a == b), "{l:?}: {i} {a} vs {j} {b}");
                 }
             }
             assert_eq!(l.len(), x.len(), "{:?}: {} != {}", l, l.len(), x.len());
@@ -659,7 +561,7 @@ mod tests {
             }
         }
 
-        let dup_ll = vec![
+        let dup_ll = [
             vec![String::new(), String::new()],
             vec![String::new(), String::new(), String::new()],
             vec!["/path/to/xxx".to_string(), "/path/to/xxx".to_string()],
@@ -701,7 +603,7 @@ mod tests {
             let x = super::remove_dup_string(l.as_slice());
             for (i, a) in x.iter().enumerate() {
                 for (j, b) in x.iter().enumerate() {
-                    assert!(!(i != j && a == b), "{l:?}: {i} {a} == {j} {b}");
+                    assert!(!(i != j && a == b), "{l:?}: {i} {a} vs {j} {b}");
                 }
             }
             assert!(l.len() > x.len(), "{:?}: {} <= {}", l, l.len(), x.len());

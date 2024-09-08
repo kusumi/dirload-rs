@@ -4,7 +4,7 @@ mod stat;
 mod util;
 mod worker;
 
-const VERSION: [i32; 3] = [0, 1, 5];
+const VERSION: [i32; 3] = [0, 4, 0];
 
 const DIRLOAD_HOME: &str = "DIRLOAD_HOME";
 
@@ -145,25 +145,25 @@ fn main() {
     opts.optopt(
         "",
         "time_minute",
-        "Exit threads after sum of this and -time_second option if > 0",
+        "Exit threads after sum of this and --time_second option if > 0",
         "<uint>",
     );
     opts.optopt(
         "",
         "time_second",
-        "Exit threads after sum of this and -time_minute option if > 0",
+        "Exit threads after sum of this and --time_minute option if > 0",
         "<uint>",
     );
     opts.optopt(
         "",
         "monitor_interval_minute",
-        "Monitor threads every sum of this and -monitor_interval_second option if > 0",
+        "Monitor threads every sum of this and --monitor_interval_second option if > 0",
         "<uint>",
     );
     opts.optopt(
         "",
         "monitor_interval_second",
-        "Monitor threads every sum of this and -monitor_interval_minute option if > 0",
+        "Monitor threads every sum of this and --monitor_interval_minute option if > 0",
         "<uint>",
     );
     opts.optflag("", "stat_only", "Do not read file data");
@@ -613,7 +613,8 @@ fn main() {
         stat::print_stat(&tsv);
         if num_interrupted > 0 {
             break;
-        } else if opt.num_set != 1 && i != opt.num_set - 1 {
+        }
+        if opt.num_set != 1 && i != opt.num_set - 1 {
             println!();
         }
     }
